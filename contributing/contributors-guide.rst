@@ -37,8 +37,6 @@ guidelines as you write.
 
 This documentation is output as HTML using the `Sphinx
 <https://www.sphinx-doc.org/en/master/>`_ documentation tool. The text is
-written using the 
-
-This documentation is written in `reStructuredText
-<https://docutils.sourceforge.io/docs/user/rst/quickstart.html>`_ and is output
-as HTML .
+written using the `reStructuredText
+<https://docutils.sourceforge.io/docs/user/rst/quickstart.html>`_
+specification.
