@@ -27,7 +27,7 @@ and slower, more accurate solvers (for science).
 .. toctree::
    :maxdepth: 2
    :hidden:
-   :caption: Download
+   :caption: Getting Started
    
    /download/github
    /download/system-requirements
@@ -68,6 +68,7 @@ and slower, more accurate solvers (for science).
 
    /contributing/contributors-guide
    /contributing/core-team
+   /contributing/rst-style-guide
 
 .. toctree::
    :maxdepth: 2

@@ -39,4 +39,13 @@ This documentation is output as HTML using the `Sphinx
 <https://www.sphinx-doc.org/en/master/>`_ documentation tool. The text is
 written using the `reStructuredText
 <https://docutils.sourceforge.io/docs/user/rst/quickstart.html>`_
-specification.
+specification. See the :doc:`/contributing/rst-style-guide` for formatting
+instructions.
+
+Adding pages to the documentation
+---------------------------------
+
+Sphinx uses a table of contents tree, or ``toctree``, directive to organize its
+contents. To add a new page, first create a ``.rst`` document in the repository
+and then add a reference to the document you created in one of the ``toctree``
+lists in ``index.rst``.
