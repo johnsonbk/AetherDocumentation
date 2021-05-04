@@ -69,6 +69,7 @@ and slower, more accurate solvers (for science).
    /contributing/contributors-guide
    /contributing/core-team
    /contributing/rst-style-guide
+   /contributing/submodules
 
 .. toctree::
    :maxdepth: 2
