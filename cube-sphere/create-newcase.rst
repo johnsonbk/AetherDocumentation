@@ -76,15 +76,17 @@ build a new case.
 |                       | sea ice) and what boundary forcing will be used. CESM has an    |
 |                       | extensive list of `component set definitions                    |
 |                       | <https://www.cesm.ucar.edu/models/cesm2/config/compsets.html>`_ |
-|                       | and these instructions using the ``FHIST`` compset, which has   |
-|                       | an active atmospheric component, the Community Atmosphere Model |
-|                       | 6, with climatological boundary forcing.                        |
+|                       | and these instructions using the ``F2000climo`` compset, which  |
+|                       | has an active atmospheric component, the Community Atmosphere   | 
+|                       | Model version 6, perpetual sea surface temperature boundary     |
+|                       | conditions from the year 2000.                                  |
 +-----------------------+-----------------------------------------------------------------+
 | ``--res``             | The grid resolution the model will run on. Each grid includes   |
 |                       | at least two parts, the atmospheric/land grid and the ocean/sea |
 |                       | ice grid to which it is coupled. These instructions use a       |
 |                       | low-resolution cube-sphere grid for the atmosphere, ``ne16np4`` |
-|                       | and couple it to a ~1° ocean/sea ice grid, ``g17``. Again, CESM |
+|                       | and couple it to a ~1° ocean/sea ice grid, ``gx1v7``. These     |
+|                       | grid names are truncated into ``ne16_g17``. Again, CESM         |
 |                       | has an extensive list of `available grids                       |
 |                       | <https://www.cesm.ucar.edu/models/cesm2/config/grids.html>`_    |
 +-----------------------+-----------------------------------------------------------------+
@@ -94,7 +96,7 @@ build a new case.
 +-----------------------+-----------------------------------------------------------------+
 | ``--project``         | The account code the project will be run on. When jobs from the |
 |                       | experiment are run, the specified account will automatically be |
-|                       | debited. Replace ``PXXXXXXX`` with your project code.           |
+|                       | debited. Replace ``PXXXXXXXX`` with your project code.          |
 +-----------------------+-----------------------------------------------------------------+
 | ``--run-unsupported`` | Since the cube-sphere grid is a newly released aspect of CESM   |
 |                       | that is not used in Coupled Model Intercomparison Project runs, |
@@ -119,16 +121,16 @@ build a new case.
 
 .. code-block::
 
-   ./create_newcase --case /glade/work/johnsonb/cesm_runs/FHIST.cesm2_2_0.T62_t12.001 --compset FHIST --res ne16_g17 --mach cheyenne --project PXXXXXXX --run-unsupported
+   ./create_newcase --case /glade/work/johnsonb/cesm_runs/F2000climo.cesm2_2_0.ne16_g17.001 --compset F2000climo --res ne16_g17 --mach cheyenne --project PXXXXXXXX --run-unsupported
    [ ... ]
-   Creating Case directory /glade/work/johnsonb/cesm_runs/FHIST.cesm2_2_0.T62_t12.001
+   Creating Case directory /glade/work/johnsonb/cesm_runs/F2000climo.cesm2_2_0.ne16_g17.001
 
 The case directory has successfully been created. Change to the case directory
 and set up the case.
 
 .. code-block::
 
-   cd /glade/work/johnsonb/cesm_runs/FHIST.cesm2_2_0.T62_t12.001
+   cd /glade/work/johnsonb/cesm_runs/F2000climo.cesm2_2_0.ne16_g17.001
    ./case.setup
 
 The ``case.setup`` script scaffolds out the case directory, creating the
@@ -138,11 +140,51 @@ model. On machines that don't throttle CPU usage on the login nodes, the
 ``case.build`` command can be invoked. On Cheyenne, however, CPU intensive
 activities are killed on the login nodes, you will need to use a build wrapper
 to build the model on a shared compute node and specify a project code. Again,
-replace ``PXXXXXXX`` with your project code.
+replace ``PXXXXXXXX`` with your project code.
 
 .. code-block::
 
-   qcmd -q share -l select=1 -A PXXXXXXX -- ./case.build
+   qcmd -q share -l select=1 -A PXXXXXXXX -- ./case.build
+
+The model build should progress for several minutes. If it compiles properly,
+a success message should be printed.
+
+.. code-block::
+
+   Time spent not building: 6.320388 sec
+   Time spent building: 603.685347 sec
+   MODEL BUILD HAS FINISHED SUCCESSFULLY
+
+The model is actually built and run in a user's scratch space.
+
+.. code-block::
+
+   /glade/scratch/johnsonb/F2000climo.cesm2_2_0.ne16_g17.001/bld/cesm.exe
+
+Submitting a job
+================
+
+To submit a job, change to the case directory and use the ``case.submit`` 
+script. The ``-M begin,end`` option sends the user an email when the job starts
+and stops running.
+
+.. code-block::
+
+   cd /glade/work/johnsonb/cesm_runs/F2000climo.cesm2_2_0.ne16_g17.001
+   ./case.submit -M begin,end
+   [...]
+   Submitted job case.st_archive with id 2650572.chadmin1.ib0.cheyenne.ucar.edu
+
+Restart file
+============
+
+After the job completes, restart files are written to the run directory which
+is also in scratch space. These restart files are written for both active and
+data components. The CAM restart file contains a ``cam.r`` substring: 
+
+.. code-block::
+
+   /glade/scratch/johnsonb/F2000climo.cesm2_2_0.ne16_g17.001/run/F2000climo.cesm2_2_0.ne16_g17.001.cam.r.0001-01-06-00000.nc
 
 References
 ==========
