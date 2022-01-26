@@ -50,6 +50,14 @@ and slower, more accurate solvers (for science).
 .. toctree::
    :maxdepth: 2
    :hidden:
+   :caption: Workflow
+
+   workflow/docker
+   workflow/github-actions
+
+.. toctree::
+   :maxdepth: 2
+   :hidden:
    :caption: Verification
 
    verification/verification-tests
@@ -72,10 +80,6 @@ and slower, more accurate solvers (for science).
    /contributing/submodules
 
 .. toctree::
-   :maxdepth: 2
    :hidden:
-   :caption: Releases
 
-   releases/armadillo
-   releases/bandicoot
-   releases/cassowary
+   README
