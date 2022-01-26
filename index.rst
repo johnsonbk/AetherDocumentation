@@ -53,7 +53,6 @@ and slower, more accurate solvers (for science).
    :caption: Workflow
 
    workflow/docker
-   workflow/github-actions
 
 .. toctree::
    :maxdepth: 2
@@ -78,6 +77,13 @@ and slower, more accurate solvers (for science).
    /contributing/core-team
    /contributing/rst-style-guide
    /contributing/submodules
+
+.. toctree::
+   :maxdepth: 2
+   :hidden:
+   :caption: Cube Sphere
+
+   /cube-sphere/create-newcase
 
 .. toctree::
    :hidden:
