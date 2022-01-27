@@ -88,7 +88,7 @@ build a new case.
 |                       | and couple it to a ~1° ocean/sea ice grid, ``gx1v7``. These     |
 |                       | grid names are truncated into ``ne16_g17``. Again, CESM         |
 |                       | has an extensive list of `available grids                       |
-|                       | <https://www.cesm.ucar.edu/models/cesm2/config/grids.html>`_    |
+|                       | <https://www.cesm.ucar.edu/models/cesm2/config/grids.html>`_.   |
 +-----------------------+-----------------------------------------------------------------+
 | ``--mach``            | The upercomputer the case will be built on. These instructions  |
 |                       | build a case on NCAR's Cheyenne computer, however, if you are   |
@@ -186,6 +186,11 @@ data components. The CAM restart file contains a ``cam.r`` substring:
 
    /glade/scratch/johnsonb/F2000climo.cesm2_2_0.ne16_g17.001/run/F2000climo.cesm2_2_0.ne16_g17.001.cam.r.0001-01-06-00000.nc
 
+The fields in the restart file can be plotted using various langauges such as 
+MATLAB or Python's matplotlib, as seen here.
+
+|plot_cube_sphere|
+
 References
 ==========
 
@@ -196,3 +201,6 @@ References
        **10**, 1537–1570,
        `doi:10.1029/2017MS001257 <https://doi.org/10.1029/2017MS001257>`_.
 
+.. |plot_cube_sphere| image:: ../_static/plot_cube_sphere.png
+   :width: 100%
+   :alt: plot of zonal wind on the CAM SE cube sphere
