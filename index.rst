@@ -35,6 +35,13 @@ and slower, more accurate solvers (for science).
 .. toctree::
    :maxdepth: 2
    :hidden:
+   :caption: Cube Sphere
+
+   /cube-sphere/create-newcase
+
+.. toctree::
+   :maxdepth: 2
+   :hidden:
    :caption: Data Assimilation
 
    data-assimilation/dart
@@ -77,15 +84,5 @@ and slower, more accurate solvers (for science).
    /contributing/core-team
    /contributing/rst-style-guide
    /contributing/submodules
-
-.. toctree::
-   :maxdepth: 2
-   :hidden:
-   :caption: Cube Sphere
-
-   /cube-sphere/create-newcase
-
-.. toctree::
-   :hidden:
-
    README
+
