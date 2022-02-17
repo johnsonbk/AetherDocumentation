@@ -35,8 +35,16 @@ and slower, more accurate solvers (for science).
 .. toctree::
    :maxdepth: 2
    :hidden:
+   :caption: Machines
+
+   /machines/pleiades
+
+.. toctree::
+   :maxdepth: 2
+   :hidden:
    :caption: Cube Sphere
 
+   /cube-sphere/installing-cesm
    /cube-sphere/create-newcase
 
 .. toctree::

@@ -1,13 +1,6 @@
-############################
-Downloading CESM from GitHub
-############################
-
-Community Earth System Model (CESM) installation instructions are available via
-the `README <https://github.com/ESCOMP/CESM>`_ on the GitHub repository. The
-cube sphere grid is available as of CESM2.2.0.
-
-Cloning and installing
-======================
+###########################
+Creating a cube sphere case
+###########################
 
 .. important::
 
@@ -15,14 +8,6 @@ Cloning and installing
    supercomputers that are widely used in the geosciences community, including
    Pleiades. When compiling the model, ensure to set the machine command line
    option, ``--mach`` to match the supercomputer you are working on.
-
-.. code-block::
-
-   cd <installation_directory>
-   git clone https://github.com/ESCOMP/CESM.git cesm2_2_0
-   cd cesm2_2_0
-   git checkout release-cesm2.2.0
-   ./manage_externals/checkout_externals
 
 Available grids
 ===============
