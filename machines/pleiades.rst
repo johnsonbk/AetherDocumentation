@@ -36,3 +36,12 @@ The scratch directory can be accessed via:
 
    /nobackup/$USER
 
+Accounting
+==========
+
+Jobs are charged `different rates <https://www.nas.nasa.gov/hecc/support/kb/job-accounting_171.html>`_
+depending on which machine they are run on.
+
+A user's default group id is listed in the ``/etc/passwd`` file.
+
+

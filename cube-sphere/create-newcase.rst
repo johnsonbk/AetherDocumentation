@@ -7,7 +7,26 @@ Creating a cube sphere case
    CESM has already been ported and should work "out of the box" on most of the
    supercomputers that are widely used in the geosciences community, including
    Pleiades. When compiling the model, ensure to set the machine command line
-   option, ``--mach`` to match the supercomputer you are working on.
+   option, ``--mach`` to match the supercomputer you are working on. However,
+   the modules that are installed on any machine change over time. CESM
+   requires knowledge of which MPI and netCDF libraries are available. These
+   modules are set in the ``config_machines.xml`` file.
+
+config_machines.xml
+===================
+
+As of February 22, 2022, the ``config_machines.xml`` file is configured
+properly to compile CESM on Pleiades Broadwell cluster which is denoted as 
+``pleaides-bro``.
+
+The ``config_machines.xml`` can be copied from:
+
+.. code-block::
+
+   /nobackup/bjohns28/CESM/cime/config/cesm/machines/config_machines.xml
+
+to the analagous path in your own CESM installation or you can use the 
+``create_newcase`` build script in this CESM installation.
 
 Available grids
 ===============
@@ -40,7 +59,7 @@ create a new case are contained within the ``cime`` subdirectory.
 
 .. code-block::
 
-   cd <installation_directory>/cesm2_2_0/cime/scripts
+   cd /nobackup/bjohns28/CESM/cime/scripts
    ls 
    climate_reproducibility  create_newcase  data_assimilation     lib           query_testlists  Tools
    create_clone             create_test     fortran_unit_testing  query_config  tests
@@ -103,49 +122,74 @@ build a new case.
    Sandy Bridge            ``pleiades-san``
    ======================  ===============================
 
+Identifying your GroupID
+------------------------
+
+You will need to find your GroupID on NASA systems using the ``groups``
+command:
+
+.. code-block::
+
+   groups $USER
+   <user> : sXXXX
+
+Insert the returned group after the ``--project`` option when invoking
+``create_newcase`` below.
+
 To build a case using the ~1° ``ne30`` cube sphere grid:
 
 .. code-block::
 
-   ./create_newcase --case /glade/work/johnsonb/cesm_runs/FHIST.cesm2_2_0.ne30_g17.001 --compset FHIST --res ne30_g17 --mach cheyenne --project PXXXXXXXX --run-unsupported
+   mkdir /nobackup/bjohns28/cases
+   cd /nobackup/bjohns28/CESM/cime/scripts
+   ./create_newcase --case /nobackup/bjohns28/cases/FHIST.cesm2_2_0.ne30_g17.001 --compset FHIST --res ne30_g17 --mach pleiades-bro --project sXXXX --run-unsupported
    [...]
-   Creating Case directory /glade/work/johnsonb/cesm_runs/FHIST.cesm2_2_0.ne30_g17.001
+   Creating Case directory /nobackup/bjohns28/cases/FHIST.cesm2_2_0.ne30_g17.001
    
 The case directory has successfully been created. Change to the case directory
 and set up the case.
 
 .. code-block::
 
-   cd /glade/work/johnsonb/cesm_runs/FHIST.cesm2_2_0.ne30_g17.001
+   cd /nobackup/bjohns28/cases/FHIST.cesm2_2_0.ne30_g17.001     
    ./case.setup
 
 The ``case.setup`` script scaffolds out the case directory, creating the
 ``Buildconf`` and ``CaseDocs`` directories that you can customize. These
 instructions use the default configurations and continue on to compiling the
-model. On machines that don't throttle CPU usage on the login nodes, the 
-``case.build`` command can be invoked. On Cheyenne, however, CPU intensive
-activities are killed on the login nodes, you will need to use a build wrapper
-to build the model on a shared compute node and specify a project code. Again,
-replace ``PXXXXXXXX`` with your project code.
+model. On machines such as pleaides that don't throttle CPU usage on the pfe
+nodes, the ``case.build`` command can be invoked directly.
 
 .. code-block::
 
-   qcmd -q share -l select=1 -A PXXXXXXXX -- ./case.build
+   ./case.build
+
+.. note::
+
+   On Cheyenne, however, CPU intensive activities are killed on the login
+   nodes, you will need to use a build wrapper to build the model on a shared
+   compute node and specify a project code. Again, replace ``PXXXXXXXX`` with
+   your project code.
+
+   .. code-block::
+
+      qcmd -q share -l select=1 -A PXXXXXXXX -- ./case.build
 
 The model build should progress for several minutes. If it compiles properly,
 a success message should be printed.
 
 .. code-block::
 
-   Time spent not building: 6.320388 sec
-   Time spent building: 603.685347 sec
+   [...]
+   Time spent not building: 20.459729 sec
+   Time spent building: 719.937638 sec
    MODEL BUILD HAS FINISHED SUCCESSFULLY
 
 The model is actually built and run in a user's scratch space.
 
 .. code-block::
 
-   /glade/scratch/johnsonb/FHIST.cesm2_2_0.ne30_g17.001/bld/cesm.exe
+   /nobackup/bjohns28/FHIST.cesm2_2_0.ne30_g17.001/bld/cesm.exe
 
 Submitting a job
 ================
@@ -160,13 +204,9 @@ days. This setting can be changed to run for a single model day using
 
 .. code-block::
 
-   cd /glade/work/johnsonb/cesm_runs/FHIST.cesm2_2_0.ne30_g17.001
+   cd /nobackup/bjohns28/cases/FHIST.cesm2_2_0.ne30_g17.001
    ./xmlchange STOP_N=1
    ./case.submit -M begin,end
-   [...]
-   Submitted job id is 2658061.chadmin1.ib0.cheyenne.ucar.edu
-   Submitted job case.run with id 2658060.chadmin1.ib0.cheyenne.ucar.edu
-   Submitted job case.st_archive with id 2658061.chadmin1.ib0.cheyenne.ucar.edu
 
 Restart file
 ============
@@ -179,7 +219,7 @@ will be for January 2nd, 1979.
 
 .. code-block::
 
-   /glade/scratch/johnsonb/FHIST.cesm2_2_0.ne30_g17.001/run/FHIST.cesm2_2_0.ne30_g17.001.cam.r.1979-01-02-00000.nc
+   /nobackup/bjohns28/FHIST.cesm2_2_0.ne30_g17.001/run/FHIST.cesm2_2_0.ne30_g17.001.cam.r.1979-01-02-00000.nc
 
 The fields in the restart file can be plotted using various langauges such as 
 MATLAB or Python's matplotlib, as seen here.
