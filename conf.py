@@ -18,7 +18,7 @@ import sphinx_rtd_theme
 # -- Project information -----------------------------------------------------
 
 project = 'Aether Documentation'
-copyright = '2021, University of Michigan'
+copyright = '2022, University of Michigan'
 author = 'Aether Developers'
 
 # The full version, including alpha/beta/rc tags
