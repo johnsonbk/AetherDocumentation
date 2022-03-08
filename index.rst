@@ -46,6 +46,7 @@ and slower, more accurate solvers (for science).
 
    /cube-sphere/installing-cesm
    /cube-sphere/create-newcase
+   /cube-sphere/grid-code
 
 .. toctree::
    :maxdepth: 2
