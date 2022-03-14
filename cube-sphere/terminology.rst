@@ -21,7 +21,7 @@ the results are then coupled to the cube-sphere grid.
 GLL
 ===
 
-In the SE dynamical core, the grid is known as the GLL grid because it's
+In the SE dynamical core, the grid is known as the GLL grid because its
 columns are located at the Gauss-Lobatto-Legendre quadrature points.
 
 
