@@ -9,6 +9,11 @@ integer, parameter, public :: npsq = 48602*48602
 integer, parameter, public :: nelemd = 48602
 integer, parameter, public :: qsize_d = 6
 
+! Note from Ben: dimensions mod
+integer, parameter, public :: nc = 3       ! cslam resolution
+integer, parameter, public :: nhe=1        ! Max. Courant number
+integer, parameter, public :: ntrac_d = 0 ! No fvm tracers if CSLAM is off
+
 integer, public, parameter :: num_neighbors=8 ! for north, south, east, west, neast, nwest, seast, swest
 
 integer, parameter, public :: nlev = 45
@@ -321,6 +326,161 @@ type, public :: horiz_coord_t
   ! procedure                 :: write_attr     => write_horiz_coord_attr
   ! procedure                 :: write_var      => write_horiz_coord_var
 end type horiz_coord_t
+
+!MODULE FVM_CONTROL_VOLUME_MOD---------------------------------------------CE-for FVM
+! AUTHOR: Christoph Erath, 11.June 2011                                             !
+! This module contains everything to initialize the arrival. It also provides the   !
+! interpolation points for the reconstruction (projection from one face to another  !
+! when the element is on the cube edge)                                             !
+! It also intialize the start values, see also fvm_analytic                         !
+!-----------------------------------------------------------------------------------! 
+! module fvm_control_volume_mod
+!   use shr_kind_mod,           only: r8=>shr_kind_r8
+!   use coordinate_systems_mod, only: spherical_polar_t
+!   use element_mod,            only: element_t
+!   use dimensions_mod,         only: nc, nhe, nlev, ntrac_d, qsize_d,ne, np, nhr, ns, nhc
+!   use dimensions_mod,         only: fv_nphys, nhe_phys, nhr_phys, ns_phys, nhc_phys,fv_nphys
+!   use dimensions_mod,         only: irecons_tracer
+!   use cam_abortutils,         only: endrun
+
+!   implicit none
+!   private
+!   integer, parameter, private:: nh = nhr+(nhe-1) ! = 2 (nhr=2; nhe=1)
+!                                                  ! = 3 (nhr=2; nhe=2)
+
+type, public :: fvm_struct
+    ! fvm tracer mixing ratio: (kg/kg)
+    real (kind=r8) :: c(1-nhc:nc+nhc,1-nhc:nc+nhc,nlev,ntrac_d)
+    real (kind=r8) :: se_flux(1-nhe:nc+nhe,1-nhe:nc+nhe,4,nlev) 
+
+    real (kind=r8) :: dp_fvm(1-nhc:nc+nhc,1-nhc:nc+nhc,nlev)
+    real (kind=r8) :: dp_ref(nlev)
+    real (kind=r8) :: dp_ref_inverse(nlev)
+    real (kind=r8) :: psc(nc,nc)
+
+    real (kind=r8) :: inv_area_sphere(nc,nc)    ! inverse area_sphere    
+    real (kind=r8) :: inv_se_area_sphere(nc,nc) ! inverse area_sphere    
+
+    integer                  :: faceno         !face number
+    ! number of south,....,swest and 0 for interior element 
+    integer                  :: cubeboundary                                                 
+
+#ifdef waccm_debug
+    real (kind=r8) :: CSLAM_gamma(nc,nc,nlev,4)
+#endif    
+    real (kind=r8) :: displ_max(1-nhc:nc+nhc,1-nhc:nc+nhc,4)
+    integer        :: flux_vec (2,1-nhc:nc+nhc,1-nhc:nc+nhc,4) 
+    !
+    !
+    ! cartesian location of vertices for flux sides
+    !
+    !  x-coordinate of vertex 1: vtx_cart(1,1i,j,1,1)  = fvm%acartx(i)
+    !  y-coordinate of vertex 1: vtx_cart(1,2,i,j,2,1) = fvm%acarty(j)
+    !
+    !  x-coordinate of vertex 2: vtx_cart(2,1,i,j) = fvm%acartx(i+1)
+    !  y-coordinate of vertex 2: vtx_cart(2,2,i,j) = fvm%acarty(j  )
+    !
+    !  x-coordinate of vertex 3: vtx_cart(3,1,i,j) = fvm%acartx(i+1)
+    !  y-coordinate of vertex 3: vtx_cart(3,2,i,j) = fvm%acarty(j+1)
+    !
+    !  x-coordinate of vertex 4: vtx_cart(4,1,i,j) = fvm%acartx(i  )
+    !  y-coordinate of vertex 4: vtx_cart(4,2,i,j) = fvm%acarty(j+1)
+    !
+    real (kind=r8) :: vtx_cart (4,2,1-nhc:nc+nhc,1-nhc:nc+nhc)
+    !
+    ! flux_orient(1,i,j) = panel on which control volume (i,j) is located
+    ! flux_orient(2,i,j) = cshift value for vertex permutation
+    !
+    real (kind=r8) :: flux_orient(2  ,1-nhc:nc+nhc,1-nhc:nc+nhc) 
+    !
+    ! i,j: indicator function for non-existent cells (0 for corner halo and 1 elsewhere)
+    !
+    integer                  :: ifct   (1-nhc:nc+nhc,1-nhc:nc+nhc) 
+    integer                  :: rot_matrix(2,2,1-nhc:nc+nhc,1-nhc:nc+nhc)
+    !    
+    real (kind=r8)           :: dalpha, dbeta             ! central-angle for gnomonic coordinates
+    type (spherical_polar_t) :: center_cart(nc,nc)        ! center of fvm cell in gnomonic coordinates
+    real (kind=r8)           :: area_sphere(nc,nc)        ! spherical area of fvm cell
+    real (kind=r8)           :: spherecentroid(irecons_tracer-1,1-nhc:nc+nhc,1-nhc:nc+nhc) ! centroids
+    !
+    ! pre-computed metric terms (for efficiency)
+    !
+    ! recons_metrics(1,:,:) = spherecentroid(1,:,:)**2 -spherecentroid(3,:,:)
+    ! recons_metrics(2,:,:) = spherecentroid(2,:,:)**2 -spherecentroid(4,:,:)
+    ! recons_metrics(3,:,:) = spherecentroid(1,:,:)*spherecentroid(2,:,:)-spherecentroid(5,:,:)
+    !
+    real (kind=r8)           :: recons_metrics(3,1-nhe:nc+nhe,1-nhe:nc+nhe)    
+    !
+    ! recons_metrics_integral(1,:,:) = 2.0_r8*spherecentroid(1,:,:)**2 -spherecentroid(3,:,:)
+    ! recons_metrics_integral(2,:,:) = 2.0_r8*spherecentroid(2,:,:)**2 -spherecentroid(4,:,:)
+    ! recons_metrics_integral(3,:,:) = 2.0_r8*spherecentroid(1,:,:)*spherecentroid(2,:,:)-spherecentroid(5,:,:)
+    !
+    real (kind=r8)           :: recons_metrics_integral(3,1-nhe:nc+nhe,1-nhe:nc+nhe)    
+    !
+    integer                  :: jx_min(3), jx_max(3), jy_min(3), jy_max(3) !bounds for computation
+
+    ! provide fixed interpolation points with respect to the arrival grid for 
+    ! reconstruction   
+    integer                  :: ibase(1-nh:nc+nh,1:nhr,2)  
+    real (kind=r8)           :: halo_interp_weight(1:ns,1-nh:nc+nh,1:nhr,2)
+    real (kind=r8)           :: centroid_stretch(7,1-nhe:nc+nhe,1-nhe:nc+nhe) !for finite-difference reconstruction
+    !
+    ! pre-compute weights for reconstruction at cell vertices
+    !
+    !  ! Evaluate constant order terms
+    !  value = fcube(a,b) + &
+    !  ! Evaluate linear order terms
+    !          recons(1,a,b) * (cartx - centroid(1,a,b)) + &
+    !          recons(2,a,b) * (carty - centroid(2,a,b)) + &
+    !  ! Evaluate second order terms
+    !          recons(3,a,b) * (centroid(1,a,b)**2 - centroid(3,a,b)) + &
+    !          recons(4,a,b) * (centroid(2,a,b)**2 - centroid(4,a,b)) + &
+    !          recons(5,a,b) * (centroid(1,a,b) * centroid(2,a,b) - centroid(5,a,b)) + &
+    !
+    !          recons(3,a,b) * (cartx - centroid(1,a,b))**2 + &
+    !          recons(4,a,b) * (carty - centroid(2,a,b))**2 + &
+    !          recons(5,a,b) * (cartx - centroid(1,a,b)) * (carty - centroid(2,a,b))
+    !   
+    real (kind=r8)    :: vertex_recons_weights(4,1:irecons_tracer-1,1-nhe:nc+nhe,1-nhe:nc+nhe)
+    !
+    ! for mapping fvm2dyn
+    !
+    real (kind=r8)    :: norm_elem_coord(2,1-nhc:nc+nhc,1-nhc:nc+nhc)
+    !
+    !******************************************
+    !
+    ! separate physics grid variables
+    !
+    !******************************************
+    !
+    real (kind=r8)           , allocatable :: phis_physgrid(:,:)
+    real (kind=r8)           , allocatable :: vtx_cart_physgrid(:,:,:,:)
+    real (kind=r8)           , allocatable :: flux_orient_physgrid(:,:,:)
+    integer                  , allocatable :: ifct_physgrid(:,:)
+    integer                  , allocatable :: rot_matrix_physgrid(:,:,:,:)
+    real (kind=r8)           , allocatable :: spherecentroid_physgrid(:,:,:)
+    real (kind=r8)           , allocatable :: recons_metrics_physgrid(:,:,:)
+    real (kind=r8)           , allocatable :: recons_metrics_integral_physgrid(:,:,:)
+    ! centroid_stretch_physgrid for finite-difference reconstruction
+    real (kind=r8)           , allocatable :: centroid_stretch_physgrid       (:,:,:)
+    real (kind=r8)                         :: dalpha_physgrid, dbeta_physgrid             ! central-angle for gnomonic coordinates
+    type (spherical_polar_t) , allocatable :: center_cart_physgrid(:,:)        ! center of fvm cell in gnomonic coordinates
+    real (kind=r8)           , allocatable :: area_sphere_physgrid(:,:)        ! spherical area of fvm cell
+    integer                                :: jx_min_physgrid(3), jx_max_physgrid(3) !bounds for computation
+    integer                                :: jy_min_physgrid(3), jy_max_physgrid(3) !bounds for computation
+    integer                  , allocatable :: ibase_physgrid(:,:,:)
+    real (kind=r8)           , allocatable :: halo_interp_weight_physgrid(:,:,:,:)
+    real (kind=r8)           , allocatable :: vertex_recons_weights_physgrid(:,:,:,:)
+
+    real (kind=r8)           , allocatable :: norm_elem_coord_physgrid(:,:,:)
+    real (kind=r8)           , allocatable :: Dinv_physgrid(:,:,:,:)
+
+    real (kind=r8)           , allocatable :: fc(:,:,:,:)
+    real (kind=r8)           , allocatable :: fc_phys(:,:,:,:)
+    real (kind=r8)           , allocatable :: ft(:,:,:)
+    real (kind=r8)           , allocatable :: fm(:,:,:,:)
+    real (kind=r8)           , allocatable :: dp_phys(:,:,:)
+end type fvm_struct
 
 contains
 
