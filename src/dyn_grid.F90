@@ -1,488 +1,883 @@
-module grid
-
-integer, parameter, public :: max_hcoordname_len   = 16
-integer, parameter, public :: max_chars = 256
-integer, parameter, public :: iMap = 1
-! Note from Ben: figure out what the correct numbers are from use dimensions_mod,         only: np, nc, npsq, nlev, nlevp, qsize_d, max_neigh_edges,ntrac_d
-integer, parameter, public :: np = 48602
-integer, parameter, public :: npsq = 48602*48602
-integer, parameter, public :: nelemd = 48602
-integer, parameter, public :: qsize_d = 6
-
-! Note from Ben: dimensions mod
-integer, parameter, public :: nc = 3       ! cslam resolution
-integer, parameter, public :: nhe=1        ! Max. Courant number
-integer, parameter, public :: ntrac_d = 0 ! No fvm tracers if CSLAM is off
-
-integer, public, parameter :: num_neighbors=8 ! for north, south, east, west, neast, nwest, seast, swest
-
-integer, parameter, public :: nlev = 45
-integer, parameter, public :: nlevp=nlev+1
-integer, public, parameter :: timelevels = 3
-
-! From shr_kind_mod.F90
-integer,parameter :: i4 = selected_int_kind (6) ! 4 byte integer
-integer,parameter :: i8 = selected_int_kind (13) ! 8 byte integer
-integer, parameter, public :: r8 = selected_real_kind(12)
-
-! From /cam/src/dynamics/se/dycore/coordinate_systems_mod.F90
-type, public :: cartesian2D_t
-      real(r8) :: x             ! x coordinate
-      real(r8) :: y             ! y coordinate
-end type cartesian2D_t
-
-type, public :: cartesian3D_t
-  real(r8) :: x             ! x coordinate
-  real(r8) :: y             ! y coordinate
-  real(r8) :: z             ! z coordinate
-end type cartesian3D_t
-
-type, public :: spherical_polar_t
-  real(r8) :: r             ! radius
-  real(r8) :: lon           ! longitude
-  real(r8) :: lat           ! latitude
-end type spherical_polar_t
-
-! From gridgraph_mod.F90
-type, public :: GridVertex_t 
-    integer, pointer          :: nbrs(:) => null()           ! The numbers of the neighbor elements
-    integer, pointer          :: nbrs_face(:) => null()      ! The cube face number of the neighbor element (nbrs     array)
-    integer, pointer          :: nbrs_wgt(:) => null()       ! The weights for edges defined by nbrs array
-    integer, pointer          :: nbrs_wgt_ghost(:) => null() ! The weights for edges defined by nbrs array
-    integer                   :: nbrs_ptr(num_neighbors + 1) !index into the nbrs array for each neighbor direction
-
-    integer                   :: face_number           ! which face of the cube this vertex is on
-    integer                   :: number                ! element number
-    integer                   :: processor_number      ! processor number
-    integer                   :: SpaceCurve  ! index in Space-Filling curve
-end type GridVertex_t
-
-!  edgetype_mod.F90
-type, public :: rotation_t
-  integer                 :: nbr                ! nbr direction: north south east west
-  integer                 :: reverse            ! 0 = do not reverse order
-  ! 1 = reverse order
-  real (kind=r8), pointer :: R(:,:,:) => null() !  rotation matrix
-end type rotation_t
-
-type, public :: EdgeDescriptor_t
-  integer                      :: use_rotation
-  integer                      :: padding
-  integer,             pointer :: putmapP(:) => null()
-  integer,             pointer :: getmapP(:) => null()
-  integer,             pointer :: putmapP_ghost(:) => null()
-  integer,             pointer :: getmapP_ghost(:) => null()
-  integer,             pointer :: putmapS(:) => null()
-  integer,             pointer :: getmapS(:) => null()
-  integer,             pointer :: globalID(:) => null()
-  integer,             pointer :: loc2buf(:) => null()
-  type(cartesian3D_t), pointer :: neigh_corners(:,:) => null()
-  integer                      :: actual_neigh_edges
-  logical,             pointer :: reverse(:) => null()
-  type (rotation_t),   pointer :: rot(:) => null() !  Identifies list of edges
-  !  that must be rotated, and how
-end type EdgeDescriptor_t
-
-!---------------------------------------------------------------------------
+module dyn_grid
+!-------------------------------------------------------------------------------
 !
-!  horiz_coord_t: Information for horizontal dimension attributes
+! Define SE computational grids on the dynamics decomposition.
 !
-!---------------------------------------------------------------------------
 
-! use element_mod,            only: element_t
-! =========== PRIMITIVE-EQUATION DATA-STRUCTURES =====================
+! The grid used by the SE dynamics is called the GLL grid.  It is
+! decomposed into elements which correspond to "blocks" in the
+! physics/dynamics coupler terminology.  The columns in this grid are
+! located at the Gauss-Lobatto-Legendre (GLL) quadrature points.  The GLL
+! grid will also be used by the physics if the CSLAM advection is not used.
+! If CSLAM is used for tracer advection then it uses an FVM grid and the
+! physics will either use the same FVM grid or an FVM grid with a different
+! number of equal area subcells.  The FVM grid used by the physics is
+! referred to as the "physgrid".
+!
+! Module responsibilities:
+!
+! . Provide the physics/dynamics coupler (in module phys_grid) with data for the
+!   physics grid on the dynamics decomposition.
+!
+! . Create CAM grid objects that are used by the I/O functionality to read
+!   data from an unstructured grid format to the dynamics data structures, and
+!   to write from the dynamics data structures to unstructured grid format.  The
+!   global column ordering for the unstructured grid is determined by the SE dycore.
+!
+!-------------------------------------------------------------------------------
 
-type, public :: elem_state_t
+use shr_kind_mod,           only: r8 => shr_kind_r8, shr_kind_cl
+use spmd_utils,             only: masterproc, iam, mpicom, mstrid=>masterprocid, &
+                                  npes, mpi_integer, mpi_real8, mpi_success
+use constituents,           only: pcnst
+use physconst,              only: pi
+use cam_initfiles,          only: initial_file_get_id
+use cam_grid_support,       only: iMap
+use dp_mapping,             only: dp_reoorder
 
-! prognostic variables for preqx solver
+use cam_logfile,            only: iulog
+use cam_abortutils,         only: endrun
+use shr_sys_mod,            only: shr_sys_flush
 
-! prognostics must match those in prim_restart_mod.F90
-! vertically-lagrangian code advects dp3d instead of ps
-! tracers Q, Qdp always use 2 level time scheme
+use pio,                    only: file_desc_t, pio_seterrorhandling, pio_bcast_error, &
+                                  pio_internal_error, pio_noerr, pio_inq_dimid,       &
+                                  pio_inq_dimlen
 
-real (kind=r8) :: v     (np,np,2,nlev,timelevels)            ! velocity                           
-real (kind=r8) :: T     (np,np,nlev,timelevels)              ! temperature                        
-real (kind=r8) :: dp3d  (np,np,nlev,timelevels)              ! dry delta p on levels              
-real (kind=r8) :: psdry (np,np)                              ! dry surface pressure               
-real (kind=r8) :: phis  (np,np)                              ! surface geopotential (prescribed)  
-real (kind=r8) :: Qdp   (np,np,nlev,qsize_d,2)               ! Tracer mass                        
+use dimensions_mod,         only: globaluniquecols, nelem, nelemd, nelemdmax, &
+                                  ne, np, npsq, fv_nphys, nlev, nc, ntrac
+use element_mod,            only: element_t
+use fvm_control_volume_mod, only: fvm_struct
+use hybvcoord_mod,          only: hvcoord_t
+use prim_init,              only: prim_init1
+use edge_mod,               only: initEdgeBuffer
+use edgetype_mod,           only: EdgeBuffer_t
+use time_mod,               only: TimeLevel_t
+use dof_mod,                only: UniqueCoords, UniquePoints
 
-end type elem_state_t
+implicit none
+private
+save
 
-!___________________________________________________________________
-type, public :: derived_state_t
- !
- ! storage for subcycling tracers/dynamics
- !
-real (kind=r8) :: vn0  (np,np,2,nlev)                      ! velocity for SE tracer advection
-real (kind=r8) :: dpdiss_biharmonic(np,np,nlev)            ! mean dp dissipation tendency, if nu_p>0
-real (kind=r8) :: dpdiss_ave(np,np,nlev)                   ! mean dp used to compute psdiss_tens
+integer, parameter :: dyn_decomp = 101 ! The SE dynamics grid
+integer, parameter :: fvm_decomp = 102 ! The FVM (CSLAM) grid
+integer, parameter :: physgrid_d = 103 ! physics grid on dynamics decomp
+integer, parameter :: ptimelevels = 2
 
-! diagnostics for explicit timestep
-real (kind=r8) :: phi(np,np,nlev)                          ! geopotential
-real (kind=r8) :: omega(np,np,nlev)                        ! vertical velocity
+type (TimeLevel_t)         :: TimeLevel     ! main time level struct (used by tracers)
+type (hvcoord_t)           :: hvcoord
+type(element_t),   pointer :: elem(:) => null()  ! local GLL elements for this task
+type(fvm_struct),  pointer :: fvm(:) => null()   ! local FVM elements for this task
 
-! semi-implicit diagnostics: computed in explict-component, reused in Helmholtz-component.
-real (kind=r8) :: zeta(np,np,nlev)                         ! relative vorticity
-real (kind=r8) :: div(np,np,nlev,timelevels)               ! divergence
+public ::       &
+   dyn_decomp,  &
+   ptimelevels, &
+   TimeLevel,   &
+   hvcoord,     &
+   elem,        &
+   fvm,         &
+   edgebuf
 
-! tracer advection fields used for consistency and limiters
-real (kind=r8) :: dp(np,np,nlev)                           ! for dp_tracers at physics timestep
-real (kind=r8) :: divdp(np,np,nlev)                        ! divergence of dp
-real (kind=r8) :: divdp_proj(np,np,nlev)                   ! DSSed divdp
-real (kind=r8) :: mass(MAX(qsize_d,ntrac_d)+9)             ! total tracer mass for diagnostics
+public :: &
+   dyn_grid_init,            &
+   get_block_bounds_d,       & ! get first and last indices in global block ordering
+   get_block_gcol_d,         & ! get column indices for given block
+   get_block_gcol_cnt_d,     & ! get number of columns in given block
+   get_block_lvl_cnt_d,      & ! get number of vertical levels in column
+   get_block_levels_d,       & ! get vertical levels in column
+   get_block_owner_d,        & ! get process "owning" given block
+   get_gcol_block_d,         & ! get global block indices and local columns
+                               ! index for given global column index
+   get_gcol_block_cnt_d,     & ! get number of blocks containing data
+                               ! from a given global column index
+   get_horiz_grid_dim_d,     &
+   get_horiz_grid_d,         & ! get horizontal grid coordinates
+   get_dyn_grid_parm,        &
+   get_dyn_grid_parm_real1d, &
+   dyn_grid_get_elem_coords, & ! get coordinates of a specified block element
+   dyn_grid_get_colndx,      & ! get element block/column and MPI process indices
+                               ! corresponding to a specified global column index
+   physgrid_copy_attributes_d
 
-! forcing terms for CAM
-real (kind=r8) :: FQ(np,np,nlev,qsize_d)                   ! tracer forcing
-real (kind=r8) :: FM(np,np,2,nlev)                         ! momentum forcing
-real (kind=r8) :: FDP(np,np,nlev)                          ! save full updated dp right after physics
-real (kind=r8) :: FT(np,np,nlev)                           ! temperature forcing
-real (kind=r8) :: etadot_prescribed(np,np,nlevp)           ! prescribed vertical tendency
-real (kind=r8) :: u_met(np,np,nlev)                        ! zonal component of prescribed meteorology winds
-real (kind=r8) :: dudt_met(np,np,nlev)                     ! rate of change of zonal component of prescribed meteorology winds
-real (kind=r8) :: v_met(np,np,nlev)                        ! meridional component of prescribed meteorology winds
-real (kind=r8) :: dvdt_met(np,np,nlev)                     ! rate of change of meridional component of prescribed meteorology winds
-real (kind=r8) :: T_met(np,np,nlev)                        ! prescribed meteorology temperature
-real (kind=r8) :: dTdt_met(np,np,nlev)                     ! rate of change of prescribed meteorology temperature
-real (kind=r8) :: ps_met(np,np)                            ! surface pressure of prescribed meteorology
-real (kind=r8) :: dpsdt_met(np,np)                         ! rate of change of surface pressure of prescribed meteorology
-real (kind=r8) :: nudge_factor(np,np,nlev)                 ! nudging factor (prescribed)
-real (kind=r8) :: Utnd(npsq,nlev)                          ! accumulated U tendency due to nudging towards prescribed met
-real (kind=r8) :: Vtnd(npsq,nlev)                          ! accumulated V tendency due to nudging towards prescribed met
-real (kind=r8) :: Ttnd(npsq,nlev)                          ! accumulated T tendency due to nudging towards prescribed met
+! Namelist variables controlling grid writing.
+! Read in dyn_readnl from dyn_se_inparm group.
+character(len=16),          public :: se_write_grid_file   = 'no'
+character(len=shr_kind_cl), public :: se_grid_filename     = ''
+logical,                    public :: se_write_gll_corners = .false.
 
-real (kind=r8) :: pecnd(np,np,nlev)                        ! pressure perturbation from condensate
+type block_global_data
+   integer :: UniquePtOffset  ! global index of first column in element
+   integer :: NumUniqueP      ! number of unique columns in element
+   integer :: LocalID         ! local index of element in a task
+   integer :: Owner           ! task id of element owner
+end type block_global_data
 
-end type derived_state_t
+! Only need this global data for the GLL grid if it is also the physics grid.
+type(block_global_data), allocatable :: gblocks(:)
 
-!___________________________________________________________________
-type, public :: elem_accum_t
+! number of global dynamics columns. Set by SE dycore init.
+integer :: ngcols_d = 0
+! number of global elements. Set by SE dycore init.
+integer :: nelem_d = 0
 
+real(r8), parameter :: rad2deg = 180.0_r8/pi
 
-! the "4" timelevels represents data computed at:
-!  1  t-.5
-!  2  t+.5   after dynamics
-!  3  t+.5   after forcing
-!  4  t+.5   after Robert
-! after calling TimeLevelUpdate, all times above decrease by 1.0
+type(EdgeBuffer_t) :: edgebuf
 
-
-end type elem_accum_t
-
-
-! ============= DATA-STRUCTURES COMMON TO ALL SOLVERS ================
-
-type, public :: index_t
- integer :: ia(npsq),ja(npsq)
- integer :: is,ie
- integer :: NumUniquePts
- integer :: UniquePtOffset
-end type index_t
-
-!___________________________________________________________________
-type, public :: element_t
- integer :: LocalId
- integer :: GlobalId
-
- ! Coordinate values of element points
- type (spherical_polar_t) :: spherep(np,np)                       ! Spherical coords of GLL points
-
- ! Equ-angular gnomonic projection coordinates
- type (cartesian2D_t)     :: cartp(np,np)                         ! gnomonic coords of GLL points
- type (cartesian2D_t)     :: corners(4)                           ! gnomonic coords of element corners
- real (kind=r8)    :: u2qmap(4,2)                          ! bilinear map from ref element to quad in cubedsphere coordinates
-                                                                  ! SHOULD BE REMOVED
- ! 3D cartesian coordinates
- type (cartesian3D_t)     :: corners3D(4)
-
- ! Element diagnostics
- real (kind=r8)    :: area                                 ! Area of element
- real (kind=r8)    :: normDinv                             ! some type of norm of Dinv used for CFL
- real (kind=r8)    :: dx_short                             ! short length scale in km
- real (kind=r8)    :: dx_long                              ! long length scale in km
-
- real (kind=r8)    :: variable_hyperviscosity(np,np)       ! hyperviscosity based on above
- real (kind=r8)    :: hv_courant                           ! hyperviscosity courant number
- real (kind=r8)    :: tensorVisc(np,np,2,2)                !og, matrix V for tensor viscosity
-
- ! Edge connectivity information
-!     integer :: node_numbers(4)
-!     integer :: node_multiplicity(4)                 ! number of elements sharing corner node
-
- type (GridVertex_t)      :: vertex                               ! element grid vertex information
- type (EdgeDescriptor_t)  :: desc
-
- type (elem_state_t)      :: state
-
- type (derived_state_t)   :: derived
- ! Metric terms
- real (kind=r8)    :: met(np,np,2,2)                       ! metric tensor on velocity and pressure grid
- real (kind=r8)    :: metinv(np,np,2,2)                    ! metric tensor on velocity and pressure grid
- real (kind=r8)    :: metdet(np,np)                        ! g = SQRT(det(g_ij)) on velocity and pressure grid
- real (kind=r8)    :: rmetdet(np,np)                       ! 1/metdet on velocity pressure grid
- real (kind=r8)    :: D(np,np,2,2)                         ! Map covariant field on cube to vector field on the sphere
- real (kind=r8)    :: Dinv(np,np,2,2)                      ! Map vector field on the sphere to covariant v on cube
-
-
- ! Mass flux across the sides of each sub-element.
- ! The storage is redundent since the mass across shared sides
- ! must be equal in magnitude and opposite in sign.
- ! The layout is like:
- !   --------------------------------------------------------------
- ! ^|    (1,4,3)     |                |              |    (4,4,3) |
- ! ||                |                |              |            |
- ! ||(1,4,4)         |                |              |(4,4,4)     |
- ! ||         (1,4,2)|                |              |     (4,4,2)|
- ! ||                |                |              |            |
- ! ||   (1,4,1)      |                |              |  (4,4,1)   |
- ! |---------------------------------------------------------------
- ! S|                |                |              |            |
- ! e|                |                |              |            |
- ! c|                |                |              |            |
- ! o|                |                |              |            |
- ! n|                |                |              |            |
- ! d|                |                |              |            |
- !  ---------------------------------------------------------------
- ! C|                |                |              |            |
- ! o|                |                |              |            |
- ! o|                |                |              |            |
- ! r|                |                |              |            |
- ! d|                |                |              |            |
- ! i|                |                |              |            |
- ! n---------------------------------------------------------------
- ! a|    (1,1,3)     |                |              |    (4,1,3) |
- ! t|                |                |              |(4,1,4)     |
- ! e|(1,1,4)         |                |              |            |
- !  |         (1,1,2)|                |              |     (4,1,2)|
- !  |                |                |              |            |
- !  |    (1,1,1)     |                |              |  (4,1,1)   |
- !  ---------------------------------------------------------------
- !          First Coordinate ------->
- real (kind=r8) :: sub_elem_mass_flux(nc,nc,4,nlev)
-
- ! Convert vector fields from spherical to rectangular components
- ! The transpose of this operation is its pseudoinverse.
- real (kind=r8)    :: vec_sphere2cart(np,np,3,2)
-
- ! Mass matrix terms for an element on a cube face
- real (kind=r8)    :: mp(np,np)                            ! mass matrix on v and p grid
- real (kind=r8)    :: rmp(np,np)                           ! inverse mass matrix on v and p grid
-
- ! Mass matrix terms for an element on the sphere
- ! This mass matrix is used when solving the equations in weak form
- ! with the natural (surface area of the sphere) inner product
- real (kind=r8)    :: spheremp(np,np)                      ! mass matrix on v and p grid
- real (kind=r8)    :: rspheremp(np,np)                     ! inverse mass matrix on v and p grid
-
- integer(i8) :: gdofP(np,np)                     ! global degree of freedom (P-grid)
-
- real (kind=r8)    :: fcor(np,np)                          ! Coreolis term
-
- type (index_t) :: idxP
- type (index_t),pointer :: idxV
- integer :: FaceNum
-
- ! force element_t to be a multiple of 8 bytes.
- ! on BGP, code will crash (signal 7, or signal 15) if 8 byte alignment is off
- ! check core file for:
- ! core.63:Generated by interrupt..(Alignment Exception DEAR=0xa1ef671c ESR=0x01800000 CCR0=0x4800a002)
- integer :: dummy
-end type element_t
-
-! From cime/src/externals/pio1/pio/pio_types.F90
-type, public :: var_desc_t
-   
-   integer(i4)     :: varID
-   integer(i4)     :: rec   ! This is a record number or pointer into the unlim dimension of the
-                                  ! netcdf file
-   integer(i4)     :: type
-   integer(i4)     :: ndims ! number of dimensions as defined on the netcdf file.
-   character(len=50) :: name ! vdc needed variable
-end type var_desc_t
-
-! 
-type, public :: horiz_coord_t
-  private
-  character(len=max_hcoordname_len) :: name = ''  ! coordinate name
-  character(len=max_hcoordname_len) :: dimname = ''  ! dimension name
-        ! NB: If dimname is blank, it is assumed to be name
-  integer                   :: dimsize = 0       ! global size of dimension
-  character(len=max_chars)  :: long_name = ''    ! 'long_name' attribute
-  character(len=max_chars)  :: units = ''        ! 'units' attribute
-  real(r8),         pointer :: values(:) => NULL() ! dim values (local if map)
-  integer(iMap),    pointer :: map(:) => NULL()  ! map (dof) for dist. coord
-  logical                   :: latitude          ! .false. means longitude
-  real(r8),         pointer :: bnds(:,:) => NULL() ! bounds, if present
-  type(var_desc_t), pointer :: vardesc => NULL() ! If we are to write coord
-  type(var_desc_t), pointer :: bndsvdesc => NULL() ! If we are to write bounds
-  contains
-  procedure                 :: get_coord_len  => horiz_coord_len
-  procedure                 :: num_elem       => horiz_coord_num_elem
-  procedure                 :: global_size    => horiz_coord_find_size
-  procedure                 :: get_coord_name => horiz_coord_name
-  procedure                 :: get_dim_name   => horiz_coord_dim_name
-  procedure                 :: get_long_name  => horiz_coord_long_name
-  procedure                 :: get_units      => horiz_coord_units
-  ! procedure                 :: write_attr     => write_horiz_coord_attr
-  ! procedure                 :: write_var      => write_horiz_coord_var
-end type horiz_coord_t
-
-!MODULE FVM_CONTROL_VOLUME_MOD---------------------------------------------CE-for FVM
-! AUTHOR: Christoph Erath, 11.June 2011                                             !
-! This module contains everything to initialize the arrival. It also provides the   !
-! interpolation points for the reconstruction (projection from one face to another  !
-! when the element is on the cube edge)                                             !
-! It also intialize the start values, see also fvm_analytic                         !
-!-----------------------------------------------------------------------------------! 
-! module fvm_control_volume_mod
-!   use shr_kind_mod,           only: r8=>shr_kind_r8
-!   use coordinate_systems_mod, only: spherical_polar_t
-!   use element_mod,            only: element_t
-!   use dimensions_mod,         only: nc, nhe, nlev, ntrac_d, qsize_d,ne, np, nhr, ns, nhc
-!   use dimensions_mod,         only: fv_nphys, nhe_phys, nhr_phys, ns_phys, nhc_phys,fv_nphys
-!   use dimensions_mod,         only: irecons_tracer
-!   use cam_abortutils,         only: endrun
-
-!   implicit none
-!   private
-!   integer, parameter, private:: nh = nhr+(nhe-1) ! = 2 (nhr=2; nhe=1)
-!                                                  ! = 3 (nhr=2; nhe=2)
-
-type, public :: fvm_struct
-    ! fvm tracer mixing ratio: (kg/kg)
-    real (kind=r8) :: c(1-nhc:nc+nhc,1-nhc:nc+nhc,nlev,ntrac_d)
-    real (kind=r8) :: se_flux(1-nhe:nc+nhe,1-nhe:nc+nhe,4,nlev) 
-
-    real (kind=r8) :: dp_fvm(1-nhc:nc+nhc,1-nhc:nc+nhc,nlev)
-    real (kind=r8) :: dp_ref(nlev)
-    real (kind=r8) :: dp_ref_inverse(nlev)
-    real (kind=r8) :: psc(nc,nc)
-
-    real (kind=r8) :: inv_area_sphere(nc,nc)    ! inverse area_sphere    
-    real (kind=r8) :: inv_se_area_sphere(nc,nc) ! inverse area_sphere    
-
-    integer                  :: faceno         !face number
-    ! number of south,....,swest and 0 for interior element 
-    integer                  :: cubeboundary                                                 
-
-#ifdef waccm_debug
-    real (kind=r8) :: CSLAM_gamma(nc,nc,nlev,4)
-#endif    
-    real (kind=r8) :: displ_max(1-nhc:nc+nhc,1-nhc:nc+nhc,4)
-    integer        :: flux_vec (2,1-nhc:nc+nhc,1-nhc:nc+nhc,4) 
-    !
-    !
-    ! cartesian location of vertices for flux sides
-    !
-    !  x-coordinate of vertex 1: vtx_cart(1,1i,j,1,1)  = fvm%acartx(i)
-    !  y-coordinate of vertex 1: vtx_cart(1,2,i,j,2,1) = fvm%acarty(j)
-    !
-    !  x-coordinate of vertex 2: vtx_cart(2,1,i,j) = fvm%acartx(i+1)
-    !  y-coordinate of vertex 2: vtx_cart(2,2,i,j) = fvm%acarty(j  )
-    !
-    !  x-coordinate of vertex 3: vtx_cart(3,1,i,j) = fvm%acartx(i+1)
-    !  y-coordinate of vertex 3: vtx_cart(3,2,i,j) = fvm%acarty(j+1)
-    !
-    !  x-coordinate of vertex 4: vtx_cart(4,1,i,j) = fvm%acartx(i  )
-    !  y-coordinate of vertex 4: vtx_cart(4,2,i,j) = fvm%acarty(j+1)
-    !
-    real (kind=r8) :: vtx_cart (4,2,1-nhc:nc+nhc,1-nhc:nc+nhc)
-    !
-    ! flux_orient(1,i,j) = panel on which control volume (i,j) is located
-    ! flux_orient(2,i,j) = cshift value for vertex permutation
-    !
-    real (kind=r8) :: flux_orient(2  ,1-nhc:nc+nhc,1-nhc:nc+nhc) 
-    !
-    ! i,j: indicator function for non-existent cells (0 for corner halo and 1 elsewhere)
-    !
-    integer                  :: ifct   (1-nhc:nc+nhc,1-nhc:nc+nhc) 
-    integer                  :: rot_matrix(2,2,1-nhc:nc+nhc,1-nhc:nc+nhc)
-    !    
-    real (kind=r8)           :: dalpha, dbeta             ! central-angle for gnomonic coordinates
-    type (spherical_polar_t) :: center_cart(nc,nc)        ! center of fvm cell in gnomonic coordinates
-    real (kind=r8)           :: area_sphere(nc,nc)        ! spherical area of fvm cell
-    real (kind=r8)           :: spherecentroid(irecons_tracer-1,1-nhc:nc+nhc,1-nhc:nc+nhc) ! centroids
-    !
-    ! pre-computed metric terms (for efficiency)
-    !
-    ! recons_metrics(1,:,:) = spherecentroid(1,:,:)**2 -spherecentroid(3,:,:)
-    ! recons_metrics(2,:,:) = spherecentroid(2,:,:)**2 -spherecentroid(4,:,:)
-    ! recons_metrics(3,:,:) = spherecentroid(1,:,:)*spherecentroid(2,:,:)-spherecentroid(5,:,:)
-    !
-    real (kind=r8)           :: recons_metrics(3,1-nhe:nc+nhe,1-nhe:nc+nhe)    
-    !
-    ! recons_metrics_integral(1,:,:) = 2.0_r8*spherecentroid(1,:,:)**2 -spherecentroid(3,:,:)
-    ! recons_metrics_integral(2,:,:) = 2.0_r8*spherecentroid(2,:,:)**2 -spherecentroid(4,:,:)
-    ! recons_metrics_integral(3,:,:) = 2.0_r8*spherecentroid(1,:,:)*spherecentroid(2,:,:)-spherecentroid(5,:,:)
-    !
-    real (kind=r8)           :: recons_metrics_integral(3,1-nhe:nc+nhe,1-nhe:nc+nhe)    
-    !
-    integer                  :: jx_min(3), jx_max(3), jy_min(3), jy_max(3) !bounds for computation
-
-    ! provide fixed interpolation points with respect to the arrival grid for 
-    ! reconstruction   
-    integer                  :: ibase(1-nh:nc+nh,1:nhr,2)  
-    real (kind=r8)           :: halo_interp_weight(1:ns,1-nh:nc+nh,1:nhr,2)
-    real (kind=r8)           :: centroid_stretch(7,1-nhe:nc+nhe,1-nhe:nc+nhe) !for finite-difference reconstruction
-    !
-    ! pre-compute weights for reconstruction at cell vertices
-    !
-    !  ! Evaluate constant order terms
-    !  value = fcube(a,b) + &
-    !  ! Evaluate linear order terms
-    !          recons(1,a,b) * (cartx - centroid(1,a,b)) + &
-    !          recons(2,a,b) * (carty - centroid(2,a,b)) + &
-    !  ! Evaluate second order terms
-    !          recons(3,a,b) * (centroid(1,a,b)**2 - centroid(3,a,b)) + &
-    !          recons(4,a,b) * (centroid(2,a,b)**2 - centroid(4,a,b)) + &
-    !          recons(5,a,b) * (centroid(1,a,b) * centroid(2,a,b) - centroid(5,a,b)) + &
-    !
-    !          recons(3,a,b) * (cartx - centroid(1,a,b))**2 + &
-    !          recons(4,a,b) * (carty - centroid(2,a,b))**2 + &
-    !          recons(5,a,b) * (cartx - centroid(1,a,b)) * (carty - centroid(2,a,b))
-    !   
-    real (kind=r8)    :: vertex_recons_weights(4,1:irecons_tracer-1,1-nhe:nc+nhe,1-nhe:nc+nhe)
-    !
-    ! for mapping fvm2dyn
-    !
-    real (kind=r8)    :: norm_elem_coord(2,1-nhc:nc+nhc,1-nhc:nc+nhc)
-    !
-    !******************************************
-    !
-    ! separate physics grid variables
-    !
-    !******************************************
-    !
-    real (kind=r8)           , allocatable :: phis_physgrid(:,:)
-    real (kind=r8)           , allocatable :: vtx_cart_physgrid(:,:,:,:)
-    real (kind=r8)           , allocatable :: flux_orient_physgrid(:,:,:)
-    integer                  , allocatable :: ifct_physgrid(:,:)
-    integer                  , allocatable :: rot_matrix_physgrid(:,:,:,:)
-    real (kind=r8)           , allocatable :: spherecentroid_physgrid(:,:,:)
-    real (kind=r8)           , allocatable :: recons_metrics_physgrid(:,:,:)
-    real (kind=r8)           , allocatable :: recons_metrics_integral_physgrid(:,:,:)
-    ! centroid_stretch_physgrid for finite-difference reconstruction
-    real (kind=r8)           , allocatable :: centroid_stretch_physgrid       (:,:,:)
-    real (kind=r8)                         :: dalpha_physgrid, dbeta_physgrid             ! central-angle for gnomonic coordinates
-    type (spherical_polar_t) , allocatable :: center_cart_physgrid(:,:)        ! center of fvm cell in gnomonic coordinates
-    real (kind=r8)           , allocatable :: area_sphere_physgrid(:,:)        ! spherical area of fvm cell
-    integer                                :: jx_min_physgrid(3), jx_max_physgrid(3) !bounds for computation
-    integer                                :: jy_min_physgrid(3), jy_max_physgrid(3) !bounds for computation
-    integer                  , allocatable :: ibase_physgrid(:,:,:)
-    real (kind=r8)           , allocatable :: halo_interp_weight_physgrid(:,:,:,:)
-    real (kind=r8)           , allocatable :: vertex_recons_weights_physgrid(:,:,:,:)
-
-    real (kind=r8)           , allocatable :: norm_elem_coord_physgrid(:,:,:)
-    real (kind=r8)           , allocatable :: Dinv_physgrid(:,:,:,:)
-
-    real (kind=r8)           , allocatable :: fc(:,:,:,:)
-    real (kind=r8)           , allocatable :: fc_phys(:,:,:,:)
-    real (kind=r8)           , allocatable :: ft(:,:,:)
-    real (kind=r8)           , allocatable :: fm(:,:,:,:)
-    real (kind=r8)           , allocatable :: dp_phys(:,:,:)
-end type fvm_struct
-
+!=============================================================================
 contains
+!=============================================================================
+
+subroutine dyn_grid_init()
+
+   ! Initialize SE grid, and decomposition.
+
+   use hycoef,              only: hycoef_init, hypi, hypm, nprlev, &
+                                  hyam, hybm, hyai, hybi, ps0
+   use ref_pres,            only: ref_pres_init
+   use spmd_utils,          only: MPI_MAX, MPI_INTEGER, mpicom
+   use time_manager,        only: get_nstep, get_step_size
+   use dp_mapping,          only: dp_init, dp_write
+   use native_mapping,      only: do_native_mapping, create_native_mapping_files
+
+   use parallel_mod,        only: par
+   use hybrid_mod,          only: hybrid_t, init_loop_ranges, &
+                                  get_loop_ranges, config_thread_region
+   use thread_mod ,         only: horz_num_threads
+   use control_mod,         only: qsplit, rsplit
+   use time_mod,            only: tstep, nsplit
+   use fvm_mod,             only: fvm_init2, fvm_init3, fvm_pg_init
+   use dimensions_mod,      only: irecons_tracer
+   use comp_gll_ctr_vol,    only: gll_grid_write
+   use physconst,           only: thermodynamic_active_species_num
+   
+   ! Local variables
+
+   type(file_desc_t), pointer  :: fh_ini
+
+   integer                     :: qsize_local
+   integer                     :: k
+
+   type(hybrid_t)              :: hybrid
+   integer                     :: ierr
+   integer                     :: neltmp(3)
+   integer                     :: dtime
+
+   real(r8), allocatable       ::clat(:), clon(:), areaa(:)
+   integer                     :: nets, nete
+
+   character(len=*), parameter :: sub = 'dyn_grid_init'
+   !----------------------------------------------------------------------------
+
+   ! Get file handle for initial file and first consistency check
+   fh_ini => initial_file_get_id()
+
+   ! Initialize hybrid coordinate arrays
+   call hycoef_init(fh_ini, psdry=.true.)
+
+   hvcoord%hyam = hyam
+   hvcoord%hyai = hyai
+   hvcoord%hybm = hybm
+   hvcoord%hybi = hybi
+   hvcoord%ps0  = ps0
+   do k = 1, nlev
+      hvcoord%hybd(k) = hvcoord%hybi(k+1) - hvcoord%hybi(k)
+   end do
+
+   ! Initialize reference pressures
+   call ref_pres_init(hypi, hypm, nprlev)
+
+   if (iam < par%nprocs) then
+
+      call prim_init1(elem, fvm, par, TimeLevel)
+      if (fv_nphys > 0) then
+         call dp_init(elem, fvm)
+      end if
+
+      if (fv_nphys > 0) then
+         qsize_local = thermodynamic_active_species_num + 3
+      else
+         qsize_local = pcnst + 3
+      end if
+
+      call initEdgeBuffer(par, edgebuf, elem, qsize_local*nlev, nthreads=1)
+
+   else  ! auxiliary processes
+
+      globaluniquecols = 0
+      nelem     = 0
+      nelemd    = 0
+      nelemdmax = 0
+   endif
+
+   ! nelemdmax is computed on the dycore comm, we need it globally.
+   ngcols_d = nelemdmax
+   call MPI_Allreduce(ngcols_d, nelemdmax, 1, MPI_INTEGER, MPI_MAX, mpicom, ierr)
+   ! All pes might not have the correct global grid size
+   call MPI_Allreduce(globaluniquecols, ngcols_d, 1, MPI_INTEGER, MPI_MAX, mpicom, ierr)
+   ! All pes might not have the correct number of elements
+   call MPI_Allreduce(nelem, nelem_d, 1, MPI_INTEGER, MPI_MAX, mpicom, ierr)
+
+   ! nelemd (# of elements on this task) is set by prim_init1
+   call init_loop_ranges(nelemd)
+
+   ! Dynamics timestep
+   !
+   !  Note: dtime = timestep for physics/dynamics coupling
+   !        tstep = the dynamics timestep:
+   dtime = get_step_size()
+   tstep = dtime / real(nsplit*qsplit*rsplit, r8)
+   TimeLevel%nstep = get_nstep()*nsplit*qsplit*rsplit
+
+   ! initial SE (subcycled) nstep
+   TimeLevel%nstep0 = 0
+
+   ! Define the dynamics and physics grids on the dynamics decompostion.
+   ! Physics grid on the physics decomposition is defined in phys_grid_init.
+   call define_cam_grids()
+
+   if (fv_nphys > 0) then
+
+      ! ================================================
+      ! finish fvm initialization
+      ! ================================================
+
+      if (iam < par%nprocs) then
+         hybrid = config_thread_region(par,'serial')
+         call get_loop_ranges(hybrid, ibeg=nets, iend=nete)
+
+         ! initialize halo coordinate variables for cslam and physgrid
+         call fvm_init2(elem, fvm, hybrid, nets, nete)
+         call fvm_pg_init(elem, fvm, hybrid, nets, nete, irecons_tracer)
+         call fvm_init3(elem, fvm, hybrid, nets, nete, irecons_tracer)
+      end if
+
+   else
+
+      ! construct global arrays needed when GLL grid used by physics
+      call gblocks_init()
+
+   end if
+
+   ! write grid and mapping files
+   if (se_write_gll_corners) then
+      call write_grid_mapping(par, elem)
+   end if
+
+   if (trim(se_write_grid_file) /= "no") then
+      if (fv_nphys > 0) then
+         call dp_write(elem, fvm, trim(se_write_grid_file), trim(se_grid_filename))
+      else
+         call gll_grid_write(elem, trim(se_write_grid_file), trim(se_grid_filename))
+      end if
+   end if
+
+   if (do_native_mapping) then
+
+      allocate(areaA(ngcols_d))
+      allocate(clat(ngcols_d),clon(ngcols_d))
+      call get_horiz_grid_d(ngcols_d, clat_d_out=clat, clon_d_out=clon, area_d_out=areaA)
+
+      ! Create mapping files using SE basis functions
+      call create_native_mapping_files(par, elem, 'native', ngcols_d, clat, clon, areaa)
+      call create_native_mapping_files(par, elem, 'bilin', ngcols_d, clat, clon, areaa)
+
+      deallocate(areaa, clat, clon)
+   end if
+
+   call mpi_barrier(mpicom, ierr)
+
+end subroutine dyn_grid_init
+
+!=========================================================================================
+
+subroutine get_block_bounds_d(block_first, block_last)
+
+   ! Return first and last indices used in global block ordering
+
+   integer, intent(out) :: block_first  ! first (global) index used for blocks
+   integer, intent(out) :: block_last   ! last (global) index used for blocks
+   !----------------------------------------------------------------------------
+
+   block_first = 1
+   block_last = nelem_d
+
+end subroutine get_block_bounds_d
+
+!=========================================================================================
+
+subroutine get_block_gcol_d(blockid, asize, cdex)
+
+   ! Return list of global column indices in given block
+
+   !------------------------------Arguments--------------------------------
+   integer, intent(in) :: blockid      ! global block id
+   integer, intent(in) :: asize        ! array size
+
+   integer, intent(out):: cdex(asize)  ! global column indices
+
+   integer :: ic
+   !----------------------------------------------------------------------------
+
+   if (fv_nphys > 0) then
+      cdex(1) = (blockid-1)*fv_nphys*fv_nphys + 1
+      do ic = 2, asize
+         cdex(ic) = cdex(1) + ic - 1
+      end do
+   else
+
+      do ic = 1, asize
+         cdex(ic) = gblocks(blockid)%UniquePtOffset + ic - 1
+      end do
+   end if
+
+end subroutine get_block_gcol_d
+
+!=========================================================================================
+
+integer function get_block_gcol_cnt_d(blockid)
+
+   ! Return number of dynamics columns in indicated block
+
+   integer, intent(in) :: blockid
+
+   integer :: ie
+   !----------------------------------------------------------------------------
+
+   if (fv_nphys > 0) then
+      get_block_gcol_cnt_d = fv_nphys*fv_nphys
+   else
+      get_block_gcol_cnt_d = gblocks(blockid)%NumUniqueP
+   end if
+
+end function get_block_gcol_cnt_d
+
+!=========================================================================================
+
+integer function get_block_lvl_cnt_d(blockid, bcid)
+
+   ! Return number of levels in indicated column. If column
+   ! includes surface fields, then it is defined to also
+   ! include level 0.
+
+   use pmgrid, only: plevp
+
+   integer, intent(in) :: blockid  ! global block id
+   integer, intent(in) :: bcid     ! column index within block
+   !-----------------------------------------------------------------------
+
+   get_block_lvl_cnt_d = plevp
+
+end function get_block_lvl_cnt_d
+
+!=========================================================================================
+
+subroutine get_block_levels_d(blockid, bcid, lvlsiz, levels)
+
+   use pmgrid, only: plev
+
+   ! Return level indices in indicated column. If column
+   ! includes surface fields, then it is defined to also
+   ! include level 0.
+
+   ! arguments
+   integer, intent(in) :: blockid  ! global block id
+   integer, intent(in) :: bcid    ! column index within block
+   integer, intent(in) :: lvlsiz   ! dimension of levels array
+
+   integer, intent(out) :: levels(lvlsiz) ! levels indices for block
+
+   ! local variables
+   integer :: k
+   character(len=128) :: errmsg
+   !---------------------------------------------------------------------------
+
+   if (lvlsiz < plev + 1) then
+      write(errmsg,*) 'levels array not large enough (', lvlsiz,' < ',plev + 1,')'
+      call endrun('GET_BLOCK_LEVELS_D: '//trim(errmsg))
+   else
+      do k = 0, plev
+         levels(k+1) = k
+      end do
+      do k = plev+2, lvlsiz
+         levels(k) = -1
+      end do
+   end if
+
+end subroutine get_block_levels_d
+
+!=========================================================================================
+
+integer function get_gcol_block_cnt_d(gcol)
+
+   ! Return number of blocks containg data for the vertical column with the
+   ! given global column index.
+   !
+   ! For SE dycore each column is "owned" by a single element, so this routine
+   ! always returns 1.
+
+   integer, intent(in) :: gcol     ! global column index
+   !----------------------------------------------------------------------------
+
+   get_gcol_block_cnt_d = 1
+
+end function get_gcol_block_cnt_d
+
+!=========================================================================================
+
+subroutine get_gcol_block_d(gcol, cnt, blockid, bcid, localblockid)
+
+   use dp_mapping,     only: dp_owner
+
+   ! Return global block index and local column index for given global column index.
+   !
+   ! The SE dycore assigns each global column to a singe element.  So cnt is assumed
+   ! to be 1.
+
+   ! arguments
+   integer, intent(in)            :: gcol     ! global column index
+   integer, intent(in)            :: cnt      ! size of blockid and bcid arrays
+
+   integer, intent(out)           :: blockid(cnt) ! block index
+   integer, intent(out)           :: bcid(cnt)    ! column index within block
+   integer, intent(out), optional :: localblockid(cnt)
+
+   ! local variables
+   integer :: sb, eb, ie, high, low
+   logical :: found
+   integer, save :: iedex_save = 1
+   character(len=*), parameter :: subname='get_gcol_block_d'
+   !----------------------------------------------------------------------------
+
+   if (fv_nphys > 0) then
+
+      blockid(1) = 1 + ((gcol-1) / (fv_nphys*fv_nphys))
+      bcid(1) = 1 + mod(gcol-1, fv_nphys*fv_nphys)
+
+      if (present(localblockid)) then
+         localblockid = -1
+         if (iam == dp_owner(blockid(1))) then
+            if (blockid(1) == elem(iedex_save)%globalid) then
+               localblockid = iedex_save
+            else
+               do ie = 1,nelemd
+                  if (blockid(1) == elem(ie)%globalid) then
+                     localblockid = ie
+                     iedex_save = ie
+                     exit
+                  end if
+               end do
+            end if
+         end if
+      end if
+
+   else
+
+      found = .false.
+      low = 1
+      high = nelem_d
+
+      ! check whether previous found element is the same here
+      if (.not. found) then
+         ie = iedex_save
+         sb = gblocks(ie)%UniquePtOffset
+         if (gcol >= sb) then
+            eb = sb + gblocks(ie)%NumUniqueP
+            if (gcol < eb) then
+               found = .true.
+            else
+               low = ie
+            endif
+         else
+            high = ie
+         endif
+      endif
+
+      ! check whether next element  is the one wanted
+      if ((.not. found) .and. &
+         ((low .eq. iedex_save) .or. (iedex_save .eq. nelem_d))) then
+         ie = iedex_save + 1
+         if (ie > nelem_d) ie = 1
+
+         sb = gblocks(ie)%UniquePtOffset
+         if (gcol >= sb) then
+            eb = sb + gblocks(ie)%NumUniqueP
+            if (gcol < eb) then
+               found = .true.
+            else
+               low = ie
+            endif
+         else
+            high = ie
+         endif
+      endif
+
+      ! otherwise, use a binary search to find element
+      if (.not. found) then
+         ! (start with a sanity check)
+         ie = low
+         sb = gblocks(ie)%UniquePtOffset
+
+         ie = high
+         eb = gblocks(ie)%UniquePtOffset + gblocks(ie)%NumUniqueP
+
+         if ((gcol < sb) .or.  (gcol >= eb)) then
+            do ie=1,nelemd
+               write(iulog,*) __LINE__,ie,elem(ie)%idxP%UniquePtOffset,elem(ie)%idxP%NumUniquePts
+            end do
+            call endrun(subname//': binary search to find element')
+         end if
+
+         do while (.not. found)
+
+            ie = low + (high-low)/2;
+            sb = gblocks(ie)%UniquePtOffset
+            if (gcol >= sb) then
+               eb = sb + gblocks(ie)%NumUniqueP
+               if (gcol < eb) then
+                  found = .true.
+               else
+                  low = ie+1
+               end if
+            else
+               high = ie-1
+            end if
+         end do
+      end if
+
+      blockid(1) = ie
+      bcid(1)    = gcol - sb + 1
+      iedex_save = ie
+
+      if (present(localblockid)) localblockid(1) = gblocks(ie)%LocalID
+
+   end if
+
+end subroutine get_gcol_block_d
+
+!=========================================================================================
+
+integer function get_block_owner_d(blockid)
+
+   ! Return id of processor that "owns" the indicated block
+
+   use dp_mapping,     only: dp_owner
+
+   integer, intent(in) :: blockid  ! global block id
+
+   character(len=*), parameter :: name = 'get_block_owner_d'
+   !----------------------------------------------------------------------------
+
+   if (fv_nphys > 0) then
+      if (dp_owner(blockid) > -1) then
+         get_block_owner_d = dp_owner(blockid)
+      else
+         call endrun(name//': Block owner not assigned in gblocks_init')
+      end if
+
+   else
+
+      if (gblocks(blockid)%Owner > -1) then
+         get_block_owner_d = gblocks(blockid)%Owner
+      else
+         call endrun(name//': Block owner not assigned in gblocks_init')
+      end if
+   end if
+
+end function get_block_owner_d
+
+!=========================================================================================
+
+subroutine get_horiz_grid_dim_d(hdim1_d,hdim2_d)
+
+   ! Returns declared horizontal dimensions of computational grid.
+   ! For non-lon/lat grids, declare grid to be one-dimensional,
+   ! i.e., (ngcols_d x 1)
+
+   !------------------------------Arguments--------------------------------
+   integer, intent(out)           :: hdim1_d ! first horizontal dimension
+   integer, intent(out), optional :: hdim2_d ! second horizontal dimension
+   !-----------------------------------------------------------------------
+
+   if (fv_nphys > 0) then
+      hdim1_d = fv_nphys*fv_nphys*nelem_d
+   else
+      hdim1_d = ngcols_d
+   end if
+   if (present(hdim2_d)) then
+      hdim2_d = 1
+   end if
+
+end subroutine get_horiz_grid_dim_d
+
+!=========================================================================================
+
+subroutine get_horiz_grid_d(nxy, clat_d_out, clon_d_out, area_d_out, &
+                            wght_d_out, lat_d_out, lon_d_out)
+
+   ! Return global arrays of latitude and longitude (in radians), column
+   ! surface area (in radians squared) and surface integration weights for
+   ! global column indices that will be passed to/from physics
+
+   ! arguments
+   integer, intent(in)   :: nxy                     ! array sizes
+
+   real(r8), intent(out),         optional :: clat_d_out(:) ! column latitudes
+   real(r8), intent(out),         optional :: clon_d_out(:) ! column longitudes
+   real(r8), intent(out), target, optional :: area_d_out(:) ! column surface
+
+   real(r8), intent(out), target, optional :: wght_d_out(:) ! column integration weight
+   real(r8), intent(out),         optional :: lat_d_out(:)  ! column degree latitudes
+   real(r8), intent(out),         optional :: lon_d_out(:)  ! column degree longitudes
+
+   ! local variables
+   real(r8),           pointer :: area_d(:)
+   real(r8),           pointer :: temp(:)
+   character(len=256)          :: errormsg
+   character(len=*), parameter :: sub = 'get_horiz_grid_d'
+   !----------------------------------------------------------------------------
+
+   ! check that nxy is set to correct size for global arrays
+   if (fv_nphys > 0) then
+      if (nxy < fv_nphys*fv_nphys*nelem_d) then
+         write(errormsg, *) sub//': arrays too small; Passed',     &
+            nxy, ', needs to be at least', fv_nphys*fv_nphys*nelem_d
+         call endrun(errormsg)
+      end if
+   else
+      if (nxy < ngcols_d) then
+         write(errormsg,*) sub//': arrays not large enough; ',     &
+            'Passed', nxy, ', needs to be at least', ngcols_d
+         call endrun(errormsg)
+      end if
+   end if
+
+   if ( present(area_d_out) ) then
+      if (size(area_d_out) /= nxy) then
+         call endrun(sub//': bad area_d_out array size')
+      end if
+      area_d => area_d_out
+      call create_global_area(area_d)
+
+   else if ( present(wght_d_out) ) then
+      if (size(wght_d_out) /= nxy) then
+         call endrun(sub//': bad wght_d_out array size')
+      end if
+      area_d => wght_d_out
+      call create_global_area(area_d)
+
+   end if
+
+   ! If one of area_d_out  or wght_d_out was present, then it was computed
+   ! above.  If they were *both* present, then do this:
+   if ( present(area_d_out) .and. present(wght_d_out) ) then
+      wght_d_out(:) = area_d_out(:)
+   end if
+
+   if (present(clon_d_out)) then
+      if (size(clon_d_out) /= nxy) then
+         call endrun(sub//': bad clon_d_out array size in dyn_grid')
+      end if
+   end if
+
+   if (present(clat_d_out)) then
+
+      if (size(clat_d_out) /= nxy) then
+         call endrun('bad clat_d_out array size in dyn_grid')
+      end if
+
+      if (present(clon_d_out)) then
+         call create_global_coords(clat_d_out, clon_d_out, lat_d_out, lon_d_out)
+      else
+         allocate(temp(nxy))
+         call create_global_coords(clat_d_out, temp, lat_d_out, lon_d_out)
+         deallocate(temp)
+      end if
+
+   else if (present(clon_d_out)) then
+
+      allocate(temp(nxy))
+      call create_global_coords(temp, clon_d_out, lat_d_out, lon_d_out)
+      deallocate(temp)
+
+   end if
+
+end subroutine get_horiz_grid_d
+
+!=========================================================================================
+
+subroutine physgrid_copy_attributes_d(gridname, grid_attribute_names)
+
+   ! create list of attributes for the physics grid that should be copied
+   ! from the corresponding grid object on the dynamics decomposition
+
+   use cam_grid_support, only: max_hcoordname_len
+
+   ! Dummy arguments
+   character(len=max_hcoordname_len),          intent(out) :: gridname
+   character(len=max_hcoordname_len), pointer, intent(out) :: grid_attribute_names(:)
+
+   if (fv_nphys > 0) then
+      gridname = 'physgrid_d'
+      allocate(grid_attribute_names(2))
+      grid_attribute_names(1) = 'fv_nphys'
+      grid_attribute_names(2) = 'ne'
+   else
+      gridname = 'GLL'
+      allocate(grid_attribute_names(3))
+      ! For standard CAM-SE, we need to copy the area attribute.
+      ! For physgrid, the physics grid will create area (GLL has area_d)
+      grid_attribute_names(1) = 'area'
+      grid_attribute_names(2) = 'np'
+      grid_attribute_names(3) = 'ne'
+   end if
+
+end subroutine physgrid_copy_attributes_d
+
+!=========================================================================================
+
+function get_dyn_grid_parm_real1d(name) result(rval)
+
+   ! This routine is not used for SE, but still needed as a dummy interface to satisfy
+   ! references from mo_synoz.F90 and phys_gmean.F90
+
+   character(len=*), intent(in) :: name
+   real(r8), pointer :: rval(:)
+
+   if(name.eq.'w') then
+      call endrun('get_dyn_grid_parm_real1d: w not defined')
+   else if(name.eq.'clat') then
+      call endrun('get_dyn_grid_parm_real1d: clat not supported, use get_horiz_grid_d')
+   else if(name.eq.'latdeg') then
+      call endrun('get_dyn_grid_parm_real1d: latdeg not defined')
+   else
+      nullify(rval)
+   end if
+end function get_dyn_grid_parm_real1d
+
+!=========================================================================================
+
+integer function get_dyn_grid_parm(name) result(ival)
+
+   ! This function is in the process of being deprecated, but is still needed
+   ! as a dummy interface to satisfy external references from some chemistry routines.
+
+   use pmgrid,          only: plat, plon, plev, plevp
+
+   character(len=*), intent(in) :: name
+   !----------------------------------------------------------------------------
+
+   if (name.eq.'plat') then
+      ival = plat
+   else if(name.eq.'plon') then
+      if (fv_nphys>0) then
+         ival = fv_nphys*fv_nphys*nelem_d
+      else
+         ival = ngcols_d
+      end if
+   else if(name.eq.'plev') then
+      ival = plev
+
+   else
+      ival = -1
+   end if
+
+end function get_dyn_grid_parm
+
+!=========================================================================================
+
+subroutine dyn_grid_get_colndx(igcol, ncols, owners, col, lbk)
+
+   ! For each global column index return the owning task.  If the column is owned
+   ! by this task, then also return the local block number and column index in that
+   ! block.
+   !
+   ! NOTE: this routine needs to be updated for the physgrid
+
+   integer, intent(in)  :: ncols
+   integer, intent(in)  :: igcol(ncols)
+   integer, intent(out) :: owners(ncols)
+   integer, intent(out) :: col(ncols)
+   integer, intent(out) :: lbk(ncols)
+
+   integer  :: i, j, k, ii
+   integer  :: blockid(1), bcid(1), lclblockid(1)
+   !----------------------------------------------------------------------------
+
+   if (fv_nphys > 0) then
+      call endrun('dyn_grid_get_colndx: not implemented for the FVM physics grid')
+   end if
+
+   do i = 1, ncols
+
+      call get_gcol_block_d(igcol(i), 1, blockid, bcid, lclblockid)
+      owners(i) = get_block_owner_d(blockid(1))
+
+      if (owners(i) == iam) then
+         lbk(i) = lclblockid(1)
+         ii     = igcol(i) - elem(lbk(i))%idxp%UniquePtoffset + 1
+         k      = elem(lbk(i))%idxp%ia(ii)
+         j      = elem(lbk(i))%idxp%ja(ii)
+         col(i) = k + (j - 1)*np
+      else
+         lbk(i) = -1
+         col(i) = -1
+      end if
+
+   end do
+
+end subroutine dyn_grid_get_colndx
+
+!=========================================================================================
+
+subroutine dyn_grid_get_elem_coords(ie, rlon, rlat, cdex)
+
+   ! Returns coordinates of a specified block element of the dyn grid
+   !
+   ! NB: This routine only uses the GLL points (i.e, it ignores the physics
+   !     grid). This is probably OK as current use is only for dyn_decomp
+   !     variables in history.
+
+   integer, intent(in) :: ie ! block element index
+
+   real(r8),optional, intent(out) :: rlon(:) ! longitudes of the columns in the element
+   real(r8),optional, intent(out) :: rlat(:) ! latitudes of the columns in the element
+   integer, optional, intent(out) :: cdex(:) ! global column index
+
+   integer :: sb,eb, ii, i,j, icol, igcol
+   real(r8), allocatable :: clat(:), clon(:)
+   !----------------------------------------------------------------------------
+
+   if (fv_nphys > 0) then
+      call endrun('dyn_grid_get_colndx: not implemented for the FVM physics grid')
+   end if
+
+   sb = elem(ie)%idxp%UniquePtOffset
+   eb = sb + elem(ie)%idxp%NumUniquePts-1
+
+   allocate( clat(sb:eb), clon(sb:eb) )
+   call UniqueCoords( elem(ie)%idxP, elem(ie)%spherep, clat(sb:eb), clon(sb:eb) )
+
+   if (present(cdex)) cdex(:) = -1
+   if (present(rlat)) rlat(:) = -999._r8
+   if (present(rlon)) rlon(:) = -999._r8
+
+   do ii=1,elem(ie)%idxp%NumUniquePts
+      i=elem(ie)%idxp%ia(ii)
+      j=elem(ie)%idxp%ja(ii)
+      icol = i+(j-1)*np
+      igcol = elem(ie)%idxp%UniquePtoffset+ii-1
+      if (present(cdex)) cdex(icol) = igcol
+      if (present(rlat)) rlat(icol) = clat( igcol )
+      if (present(rlon)) rlon(icol) = clon( igcol )
+   end do
+
+   deallocate( clat, clon )
+
+end subroutine dyn_grid_get_elem_coords
+
+!=========================================================================================
+! Private routines.
+!=========================================================================================
 
 subroutine define_cam_grids()
 
@@ -502,21 +897,12 @@ subroutine define_cam_grids()
    !
    ! . The grid_map passed to cam_grid_register is just pointed to.
    !   Cannot be deallocated.
-   
-   ! Note from Ben: the horiz_coord_t and its procedures are now declared in this
-   ! subroutine
-   ! the horiz_coord_create function is also defined in the contains section of
-   ! the subroutine.
-   ! use cam_grid_support, only: horiz_coord_t, horiz_coord_create
-   ! Note from Ben: cam_grid_register and cam_grid_attribute_register aren't
-   ! strictly needed for this. Comment out the use statments and the function
-   ! calls within the body of the subroutine.
-   ! use cam_grid_support, only: cam_grid_register, cam_grid_attribute_register
-   ! BKJ MPI_MAX, MPI_INTEGER and mpicom aren't actually used in this 
-   ! use spmd_utils,       only: MPI_MAX, MPI_INTEGER, mpicom
+
+   use cam_grid_support, only: horiz_coord_t, horiz_coord_create
+   use cam_grid_support, only: cam_grid_register, cam_grid_attribute_register
+   use spmd_utils,       only: MPI_MAX, MPI_INTEGER, mpicom
 
    ! Local variables
-
    integer                      :: i, ii, j, k, ie, mapind
    character(len=8)             :: latname, lonname, ncolname, areaname
 
@@ -540,11 +926,6 @@ subroutine define_cam_grids()
    real(r8),        allocatable :: physgrid_coord(:)
    real(r8),            pointer :: physgrid_area(:)
    integer(iMap),       pointer :: physgrid_map(:)
-
-   type (spherical_polar_t) :: center_cart(nc,nc)        ! center of fvm cell in gnomonic coordinates   
-   type (spherical_polar_t) , allocatable :: center_cart_physgrid(:,:)        ! center of fvm cell in gnomonic         coordinates
-
-   
    !----------------------------------------------------------------------------
 
    !-----------------------
@@ -615,14 +996,12 @@ subroutine define_cam_grids()
    end do
 
    ! The native SE GLL grid
-   ! Note from Ben: these functions aren't needed for the kernel, so they are 
-   ! commented out.
-   ! call cam_grid_register('GLL', dyn_decomp, lat_coord, lon_coord,           &
-   !       grid_map, block_indexed=.false., unstruct=.true.)
-   ! call cam_grid_attribute_register('GLL', trim(areaname), 'gll grid areas', &
-   !       trim(ncolname), pearea, map=pemap)
-   ! call cam_grid_attribute_register('GLL', 'np', '', np)
-   ! call cam_grid_attribute_register('GLL', 'ne', '', ne)
+   call cam_grid_register('GLL', dyn_decomp, lat_coord, lon_coord,           &
+         grid_map, block_indexed=.false., unstruct=.true.)
+   call cam_grid_attribute_register('GLL', trim(areaname), 'gll grid areas', &
+         trim(ncolname), pearea, map=pemap)
+   call cam_grid_attribute_register('GLL', 'np', '', np)
+   call cam_grid_attribute_register('GLL', 'ne', '', ne)
 
    ! Coordinate values and maps are copied into the coordinate and attribute objects.
    ! Locally allocated storage is no longer needed.
@@ -642,73 +1021,72 @@ subroutine define_cam_grids()
    !---------------------------------
    ! Create FVM grid object for CSLAM
    !---------------------------------
-   
-   ! BKJ Not trying to create FVM grid yet
-  !  if (ntrac > 0) then
 
-  !     ncols_fvm = nc * nc * nelemd
-  !     ngcols_fvm = nc * nc * nelem_d
-  !     allocate(fvm_coord(ncols_fvm))
-  !     allocate(fvm_map(ncols_fvm))
-  !     allocate(fvm_area(ncols_fvm))
+   if (ntrac > 0) then
 
-  !     do ie = 1, nelemd
-  !        k = 1
-  !        do j = 1, nc
-  !           do i = 1, nc
-  !              mapind = k + ((ie - 1) * nc * nc)
-  !              fvm_coord(mapind) = fvm(ie)%center_cart(i,j)%lon*rad2deg
-  !              fvm_map(mapind) = k + ((elem(ie)%GlobalId-1) * nc * nc)
-  !              fvm_area(mapind) = fvm(ie)%area_sphere(i,j)
-  !              k = k + 1
-  !           end do
-  !        end do
-  !     end do
-  !     lon_coord => horiz_coord_create('lon_fvm', 'ncol_fvm', ngcols_fvm,      &
-  !          'longitude', 'degrees_east', 1, size(fvm_coord), fvm_coord,        &
-  !          map=fvm_map)
+      ncols_fvm = nc * nc * nelemd
+      ngcols_fvm = nc * nc * nelem_d
+      allocate(fvm_coord(ncols_fvm))
+      allocate(fvm_map(ncols_fvm))
+      allocate(fvm_area(ncols_fvm))
 
-  !     do ie = 1, nelemd
-  !        k = 1
-  !        do j = 1, nc
-  !           do i = 1, nc
-  !              mapind = k + ((ie - 1) * nc * nc)
-  !              fvm_coord(mapind) = fvm(ie)%center_cart(i,j)%lat*rad2deg
-  !              k = k + 1
-  !           end do
-  !        end do
-  !     end do
-  !     lat_coord => horiz_coord_create('lat_fvm', 'ncol_fvm', ngcols_fvm,      &
-  !          'latitude', 'degrees_north', 1, size(fvm_coord), fvm_coord,        &
-  !          map=fvm_map)
+      do ie = 1, nelemd
+         k = 1
+         do j = 1, nc
+            do i = 1, nc
+               mapind = k + ((ie - 1) * nc * nc)
+               fvm_coord(mapind) = fvm(ie)%center_cart(i,j)%lon*rad2deg
+               fvm_map(mapind) = k + ((elem(ie)%GlobalId-1) * nc * nc)
+               fvm_area(mapind) = fvm(ie)%area_sphere(i,j)
+               k = k + 1
+            end do
+         end do
+      end do
+      lon_coord => horiz_coord_create('lon_fvm', 'ncol_fvm', ngcols_fvm,      &
+           'longitude', 'degrees_east', 1, size(fvm_coord), fvm_coord,        &
+           map=fvm_map)
 
-  !     ! Map for FVM grid
-  !     allocate(grid_map(3, ncols_fvm))
-  !     grid_map = 0_iMap
-  !     mapind = 1
-  !     do j = 1, nelemd
-  !        do i = 1, nc*nc
-  !           grid_map(1, mapind) = i
-  !           grid_map(2, mapind) = j
-  !           grid_map(3, mapind) = fvm_map(mapind)
-  !           mapind = mapind + 1
-  !        end do
-  !     end do
+      do ie = 1, nelemd
+         k = 1
+         do j = 1, nc
+            do i = 1, nc
+               mapind = k + ((ie - 1) * nc * nc)
+               fvm_coord(mapind) = fvm(ie)%center_cart(i,j)%lat*rad2deg
+               k = k + 1
+            end do
+         end do
+      end do
+      lat_coord => horiz_coord_create('lat_fvm', 'ncol_fvm', ngcols_fvm,      &
+           'latitude', 'degrees_north', 1, size(fvm_coord), fvm_coord,        &
+           map=fvm_map)
 
-  !     ! create FVM (CSLAM) grid object
-  !     call cam_grid_register('FVM', fvm_decomp, lat_coord, lon_coord,         &
-  !          grid_map, block_indexed=.false., unstruct=.true.)
-  !     call cam_grid_attribute_register('FVM', 'area_fvm', 'fvm grid areas',   &
-  !          'ncol_fvm', fvm_area, map=fvm_map)
-  !     call cam_grid_attribute_register('FVM', 'nc', '', nc)
-  !     call cam_grid_attribute_register('FVM', 'ne', '', ne)
+      ! Map for FVM grid
+      allocate(grid_map(3, ncols_fvm))
+      grid_map = 0_iMap
+      mapind = 1
+      do j = 1, nelemd
+         do i = 1, nc*nc
+            grid_map(1, mapind) = i
+            grid_map(2, mapind) = j
+            grid_map(3, mapind) = fvm_map(mapind)
+            mapind = mapind + 1
+         end do
+      end do
 
-  !     deallocate(fvm_coord)
-  !     deallocate(fvm_map)
-  !     nullify(fvm_area)
-  !     nullify(grid_map)
+      ! create FVM (CSLAM) grid object
+      call cam_grid_register('FVM', fvm_decomp, lat_coord, lon_coord,         &
+           grid_map, block_indexed=.false., unstruct=.true.)
+      call cam_grid_attribute_register('FVM', 'area_fvm', 'fvm grid areas',   &
+           'ncol_fvm', fvm_area, map=fvm_map)
+      call cam_grid_attribute_register('FVM', 'nc', '', nc)
+      call cam_grid_attribute_register('FVM', 'ne', '', ne)
 
-  !  end if
+      deallocate(fvm_coord)
+      deallocate(fvm_map)
+      nullify(fvm_area)
+      nullify(grid_map)
+
+   end if
 
    !------------------------------------------------------------------
    ! Create grid object for physics grid on the dynamics decomposition
@@ -766,12 +1144,12 @@ subroutine define_cam_grids()
       end do
 
       ! create physics grid object
-      ! call cam_grid_register('physgrid_d', physgrid_d, lat_coord, lon_coord, &
-      !      grid_map, block_indexed=.false., unstruct=.true.)
-      ! call cam_grid_attribute_register('physgrid_d', 'area_physgrid', 'physics grid areas',   &
-      !      'ncol', physgrid_area, map=physgrid_map)
-      ! call cam_grid_attribute_register('physgrid_d', 'fv_nphys', '', fv_nphys)
-      ! call cam_grid_attribute_register('physgrid_d', 'ne',       '', ne)
+      call cam_grid_register('physgrid_d', physgrid_d, lat_coord, lon_coord, &
+           grid_map, block_indexed=.false., unstruct=.true.)
+      call cam_grid_attribute_register('physgrid_d', 'area_physgrid', 'physics grid areas',   &
+           'ncol', physgrid_area, map=physgrid_map)
+      call cam_grid_attribute_register('physgrid_d', 'fv_nphys', '', fv_nphys)
+      call cam_grid_attribute_register('physgrid_d', 'ne',       '', ne)
 
       deallocate(physgrid_coord)
       deallocate(physgrid_map)
@@ -785,180 +1163,408 @@ subroutine define_cam_grids()
 
 end subroutine define_cam_grids
 
-!!#######################################################################
-!!
-!! Horizontal coordinate functions
-!!
-!!#######################################################################
+!========================================================================================
 
-integer function horiz_coord_find_size(this, dimname) result(dimsize)
-  ! Dummy arguments
-  class(horiz_coord_t), intent(in)    :: this
-  character(len=*),     intent(in)    :: dimname
+subroutine write_grid_mapping(par, elem)
 
-  dimsize = -1
-  if (len_trim(this%dimname) == 0) then
-    if(trim(dimname) == trim(this%name)) then
-      dimsize = this%dimsize
-    end if
-  else
-    if(trim(dimname) == trim(this%dimname)) then
-      dimsize = this%dimsize
-    end if
-  end if
+   use parallel_mod,  only: parallel_t
+   use cam_pio_utils, only: cam_pio_createfile, pio_subsystem
+   use pio,           only: pio_def_dim, var_desc_t, pio_int, pio_def_var, &
+                            pio_enddef, pio_closefile, pio_initdecomp, io_desc_t, &
+                            pio_write_darray, pio_freedecomp
+   use dof_mod,       only: createmetadata
 
-end function horiz_coord_find_size
+   ! arguments
+   type(parallel_t), intent(in) :: par
+   type(element_t),  intent(in) :: elem(:)
 
-integer function horiz_coord_num_elem(this)
-  ! Dummy arguments
-  class(horiz_coord_t), intent(in)    :: this
+   ! local variables
+   integer, parameter :: npm12 = (np-1)*(np-1)
 
-  if (associated(this%values)) then
-    horiz_coord_num_elem = size(this%values)
-  else
-    horiz_coord_num_elem = 0
-  end if
+   type(file_desc_t) :: nc
+   type(var_desc_t)  :: vid
+   type(io_desc_t)   :: iodesc
+   integer :: dim1, dim2, ierr, i, j, ie, cc, base, ii, jj
+   integer :: subelement_corners(npm12*nelemd,4)
+   integer :: dof(npm12*nelemd*4)
+   !----------------------------------------------------------------------------
 
-end function horiz_coord_num_elem
+   ! Create a CS grid mapping file for postprocessing tools
 
-subroutine horiz_coord_len(this, clen)
-  ! Dummy arguments
-  class(horiz_coord_t), intent(in)    :: this
-  integer,              intent(out)   :: clen
+   ! write meta data for physics on GLL nodes
+   call cam_pio_createfile(nc, 'SEMapping.nc', 0)
 
-  clen = this%dimsize
-end subroutine horiz_coord_len
+   ierr = pio_def_dim(nc, 'ncenters', npm12*nelem_d, dim1)
+   ierr = pio_def_dim(nc, 'ncorners', 4, dim2)
+   ierr = pio_def_var(nc, 'element_corners', PIO_INT, (/dim1,dim2/), vid)
 
-subroutine horiz_coord_name(this, name)
-  ! Dummy arguments
-  class(horiz_coord_t), intent(in)    :: this
-  character(len=*),     intent(out)   :: name
+   ierr = pio_enddef(nc)
+   call createmetadata(par, elem, subelement_corners)
 
-  if (len(name) < len_trim(this%name)) then
-    call endrun('horiz_coord_name: input name too short')
-  end if
-  name = trim(this%name)
-end subroutine horiz_coord_name
+   jj=0
+   do cc = 0, 3
+      do ie = 1, nelemd
+         base = ((elem(ie)%globalid-1)+cc*nelem_d)*npm12
+         ii=0
+         do j = 1, np-1
+            do i = 1, np-1
+               ii=ii+1
+               jj=jj+1
+               dof(jj) = base+ii
+            end do
+         end do
+      end do
+   end do
 
-subroutine horiz_coord_dim_name(this, dimname)
-  ! Dummy arguments
-  class(horiz_coord_t), intent(in)    :: this
-  character(len=*),     intent(out)   :: dimname
+   call pio_initdecomp(pio_subsystem, pio_int, (/nelem_d*npm12,4/), dof, iodesc)
 
-  if (len_trim(this%dimname) > 0) then
-    ! We have a separate dimension name (e.g., ncol)
-    if (len(dimname) < len_trim(this%dimname)) then
-      call endrun('horiz_coord_dimname: input name too short')
-    end if
-    dimname = trim(this%dimname)
-  else
-    ! No dimension name so we use the coordinate's name
-    ! i.e., The dimension name is the same as the coordinate variable
-    if (len(dimname) < len_trim(this%name)) then
-      call endrun('horiz_coord_dimname: input name too short')
-    end if
-    dimname = trim(this%name)
-  end if
-end subroutine horiz_coord_dim_name
+   call pio_write_darray(nc, vid, iodesc, &
+                         reshape(subelement_corners, (/nelemd*npm12*4/)), ierr)
 
-subroutine horiz_coord_long_name(this, name)
+   call pio_freedecomp(nc, iodesc)
 
-  ! Dummy arguments
-  class(horiz_coord_t), intent(in)    :: this
-  character(len=*),     intent(out)   :: name
+   call pio_closefile(nc)
 
-  if (len(name) < len_trim(this%long_name)) then
-    call endrun('horiz_coord_long_name: input name too short')
-  else
-    name = trim(this%long_name)
-  end if
+end subroutine write_grid_mapping
 
-end subroutine horiz_coord_long_name
+!=========================================================================================
 
-subroutine horiz_coord_units(this, units)
+subroutine gblocks_init()
 
-  ! Dummy arguments
-  class(horiz_coord_t), intent(in)    :: this
-  character(len=*),     intent(out)   :: units
+   ! construct global array of type block_global_data objects for GLL grid
 
-  if (len(units) < len_trim(this%units)) then
-    call endrun('horiz_coord_units: input units too short')
-  else
-    units = trim(this%units)
-  end if
+   integer :: ie, p
+   integer :: ibuf
+   integer :: ierr
+   integer :: rdispls(npes), recvcounts(npes), gid(npes), lid(npes)
+   !----------------------------------------------------------------------------
 
-end subroutine horiz_coord_units
+   if (.not. allocated(gblocks)) then
+      if (masterproc) then
+         write(iulog, *) 'INFO: Non-scalable action: Allocating global blocks in SE dycore.'
+      end if
+      allocate(gblocks(nelem_d))
+      do ie = 1, nelem_d
+         gblocks(ie)%Owner          = -1
+         gblocks(ie)%UniquePtOffset = -1
+         gblocks(ie)%NumUniqueP     = -1
+         gblocks(ie)%LocalID        = -1
+      end do
+   end if
 
-function horiz_coord_create(name, dimname, dimsize, long_name, units,       &
-     lbound, ubound, values, map, bnds) result(newcoord)
+   ! nelemdmax is the maximum number of elements in a dynamics task
+   ! nelemd is the actual number of elements in a dynamics task
 
-  ! Dummy arguments
-  character(len=*),      intent(in)                  :: name
-  character(len=*),      intent(in)                  :: dimname
-  integer,               intent(in)                  :: dimsize
-  character(len=*),      intent(in)                  :: long_name
-  character(len=*),      intent(in)                  :: units
-  ! NB: Sure, pointers would have made sense but . . . PGI
-  integer,               intent(in)                  :: lbound
-  integer,               intent(in)                  :: ubound
-  real(r8),              intent(in)                  :: values(lbound:ubound)
-  integer(iMap),         intent(in), optional        :: map(ubound-lbound+1)
-  real(r8),              intent(in), optional        :: bnds(2,lbound:ubound)
-  type(horiz_coord_t),               pointer         :: newcoord
+   do ie = 1, nelemdmax
 
-  allocate(newcoord)
+      if (ie <= nelemd) then
+         rdispls(iam+1)    = elem(ie)%idxP%UniquePtOffset - 1
+         gid(iam+1)        = elem(ie)%GlobalID
+         lid(iam+1)        = ie
+         recvcounts(iam+1) = elem(ie)%idxP%NumUniquePts
+      else
+         rdispls(iam+1)    = 0
+         recvcounts(iam+1) = 0
+         gid(iam+1)        = 0
+      endif
 
-  newcoord%name      = trim(name)
-  newcoord%dimname   = trim(dimname)
-  newcoord%dimsize   = dimsize
-  newcoord%long_name = trim(long_name)
-  newcoord%units     = trim(units)
-  ! Figure out if this is a latitude or a longitude using CF standard
-  ! http://cfconventions.org/Data/cf-conventions/cf-conventions-1.6/build/cf-conventions.html#latitude-coordinate
-  ! http://cfconventions.org/Data/cf-conventions/cf-conventions-1.6/build/cf-conventions.html#longitude-coordinate
-  if ( (trim(units) == 'degrees_north')    .or.                             &
-       (trim(units) == 'degree_north')     .or.                             &
-       (trim(units) == 'degree_N')         .or.                             &
-       (trim(units) == 'degrees_N')        .or.                             &
-       (trim(units) == 'degreeN')          .or.                             &
-       (trim(units) == 'degreesN')) then
-    newcoord%latitude  = .true.
-  else if ((trim(units) == 'degrees_east') .or.                             &
-       (trim(units) == 'degree_east')      .or.                             &
-       (trim(units) == 'degree_E')         .or.                             &
-       (trim(units) == 'degrees_E')        .or.                             &
-       (trim(units) == 'degreeE')          .or.                             &
-       (trim(units) == 'degreesE')) then
-    newcoord%latitude  = .false.
-  else
-    call endrun("horiz_coord_create: unsupported units: '"//trim(units)//"'")
-  end if
-  allocate(newcoord%values(lbound:ubound))
-  if (ubound >= lbound) then
-    newcoord%values(:) = values(:)
-  end if
+      ibuf = lid(iam+1)
+      call mpi_allgather(ibuf, 1, mpi_integer, lid, 1, mpi_integer, mpicom, ierr)
 
-  if (present(map)) then
-    if (ANY(map < 0)) then
-      call endrun("horiz_coord_create "//trim(name)//": map vals < 0")
-    end if
-    allocate(newcoord%map(ubound - lbound + 1))
-    if (ubound >= lbound) then
-      newcoord%map(:) = map(:)
-    end if
-  else
-    nullify(newcoord%map)
-  end if
+      ibuf = gid(iam+1)
+      call mpi_allgather(ibuf, 1, mpi_integer, gid, 1, mpi_integer, mpicom, ierr)
 
-  if (present(bnds)) then
-    allocate(newcoord%bnds(2, lbound:ubound))
-    if (ubound >= lbound) then
-      newcoord%bnds = bnds
-    end if
-  else
-    nullify(newcoord%bnds)
-  end if
+      ibuf = rdispls(iam+1)
+      call mpi_allgather(ibuf, 1, mpi_integer, rdispls, 1, mpi_integer, mpicom, ierr)
 
-end function horiz_coord_create
+      ibuf = recvcounts(iam+1)
+      call mpi_allgather(ibuf, 1, mpi_integer, recvcounts, 1, mpi_integer, mpicom, ierr)
 
-end module grid
+      do p = 1, npes
+         if (gid(p) > 0) then
+            gblocks(gid(p))%UniquePtOffset = rdispls(p) + 1
+            gblocks(gid(p))%NumUniqueP     = recvcounts(p)
+            gblocks(gid(p))%LocalID        = lid(p)
+            gblocks(gid(p))%Owner          = p - 1
+         end if
+      end do
+   end do
+
+end subroutine gblocks_init
+
+!=========================================================================================
+
+subroutine create_global_area(area_d)
+
+   ! Gather global array of column areas for the physics grid,
+   ! reorder to global column order, then broadcast it to all tasks.
+
+   ! Input variables
+   real(r8), pointer           :: area_d(:)
+
+   ! Local variables
+   real(r8)                    :: areaw(np,np)
+   real(r8), allocatable       :: rbuf(:), dp_area(:,:)
+   integer                     :: rdispls(npes), recvcounts(npes)
+   integer                     :: ncol
+   integer                     :: ie, sb, eb, i, j, k
+   integer                     :: ierr
+   integer                     :: ibuf
+   character(len=*), parameter :: sub = 'create_global_area'
+   !----------------------------------------------------------------------------
+
+   if (masterproc) then
+      write(iulog, *) sub//': INFO: Non-scalable action: gathering global area in SE dycore.'
+   end if
+
+   if (fv_nphys > 0) then ! physics uses an FVM grid
+
+      ! first gather all data onto masterproc, in mpi task order (via
+      ! mpi_gatherv) then redorder into globalID order (via dp_reoorder)
+      ncol = fv_nphys*fv_nphys*nelem_d
+      allocate(rbuf(ncol))
+      allocate(dp_area(fv_nphys*fv_nphys,nelem_d))
+
+      do ie = 1, nelemd
+         k = 1
+         do j = 1, fv_nphys
+            do i = 1, fv_nphys
+               dp_area(k,ie) = fvm(ie)%area_sphere_physgrid(i,j)
+               k = k + 1
+            end do
+         end do
+      end do
+
+      call mpi_gather(nelemd*fv_nphys*fv_nphys, 1, mpi_integer, recvcounts, 1, &
+                      mpi_integer, mstrid, mpicom, ierr)
+      ! Figure global displacements
+      if (masterproc) then
+         rdispls(1) = 0
+         do ie = 2, npes
+            rdispls(ie) = rdispls(ie-1) + recvcounts(ie-1)
+         end do
+         ! Check to make sure we counted correctly
+         if (rdispls(npes) + recvcounts(npes) /= ncol) then
+            call endrun(sub//': bad rdispls array size')
+         end if
+      end if
+
+      ! Gather up the areas onto the masterproc
+      call mpi_gatherv(dp_area, fv_nphys*fv_nphys*nelemd, mpi_real8, rbuf, &
+                       recvcounts, rdispls, mpi_real8, mstrid, mpicom, ierr)
+
+      ! Reorder to global order
+      if (masterproc) call dp_reoorder(rbuf, area_d)
+
+      ! Send everyone else the data
+      call mpi_bcast(area_d, ncol, mpi_real8, mstrid, mpicom, ierr)
+
+      deallocate(dp_area)
+
+   else ! physics is on the GLL grid
+
+      allocate(rbuf(ngcols_d))
+      do ie = 1, nelemdmax
+         if (ie <= nelemd) then
+            rdispls(iam+1)    = elem(ie)%idxp%UniquePtOffset - 1
+            eb                = rdispls(iam+1) + elem(ie)%idxp%NumUniquePts
+            recvcounts(iam+1) = elem(ie)%idxP%NumUniquePts
+            areaw = 1.0_r8 / elem(ie)%rspheremp(:,:)
+            call UniquePoints(elem(ie)%idxP, areaw, area_d(rdispls(iam+1)+1:eb))
+         else
+            rdispls(iam+1) = 0
+            recvcounts(iam+1) = 0
+         end if
+
+         ibuf = rdispls(iam+1)
+         call mpi_allgather(ibuf, 1, mpi_integer, rdispls, &
+            1, mpi_integer, mpicom, ierr)
+
+         ibuf = recvcounts(iam+1)
+         call mpi_allgather(ibuf, 1, mpi_integer, recvcounts, &
+            1, mpi_integer, mpicom, ierr)
+
+         sb = rdispls(iam+1) + 1
+         eb = rdispls(iam+1) + recvcounts(iam+1)
+
+         rbuf(1:recvcounts(iam+1)) = area_d(sb:eb)
+         call mpi_allgatherv(rbuf, recvcounts(iam+1), mpi_real8, area_d,       &
+            recvcounts(:), rdispls(:), mpi_real8, mpicom, ierr)
+      end do
+
+   end if
+
+   deallocate(rbuf)
+
+end subroutine create_global_area
+
+!=========================================================================================
+
+subroutine create_global_coords(clat, clon, lat_out, lon_out)
+
+   ! Gather global arrays of column coordinates for the physics grid,
+   ! reorder to global column order, then broadcast to all tasks.
+
+   ! arguments
+   real(r8),           intent(out) :: clat(:)
+   real(r8),           intent(out) :: clon(:)
+   real(r8), optional, intent(out) :: lat_out(:)
+   real(r8), optional, intent(out) :: lon_out(:)
+
+   ! Local variables
+   real(r8), allocatable           :: rbuf(:), dp_lon(:,:), dp_lat(:,:)
+   integer                         :: rdispls(npes), recvcounts(npes)
+   integer                         :: ie, sb, eb, i, j, k
+   integer                         :: ierr
+   integer                         :: ibuf
+   integer                         :: ncol
+   character(len=*), parameter :: sub='create_global_coords'
+   !----------------------------------------------------------------------------
+
+   if (masterproc) then
+      write(iulog, *) sub//': INFO: Non-scalable action: Creating global coords in SE dycore.'
+   end if
+
+   clat(:) = -iam
+   clon(:) = -iam
+   if (present(lon_out)) then
+      lon_out(:) = -iam
+   end if
+   if (present(lat_out)) then
+      lat_out(:) = -iam
+   end if
+
+   if (fv_nphys > 0) then  ! physics uses an FVM grid
+
+      ! first gather all data onto masterproc, in mpi task order (via
+      ! mpi_gatherv) then redorder into globalID order (via dp_reoorder)
+
+      ncol = fv_nphys*fv_nphys*nelem_d
+      allocate(rbuf(ncol))
+      allocate(dp_lon(fv_nphys*fv_nphys,nelem_d))
+      allocate(dp_lat(fv_nphys*fv_nphys,nelem_d))
+
+      do ie = 1, nelemd
+         k = 1
+         do j = 1, fv_nphys
+            do i = 1, fv_nphys
+               dp_lon(k,ie) = fvm(ie)%center_cart_physgrid(i,j)%lon   ! radians
+               dp_lat(k,ie) = fvm(ie)%center_cart_physgrid(i,j)%lat
+               k = k + 1
+            end do
+         end do
+      end do
+
+      call mpi_gather(nelemd*fv_nphys*fv_nphys, 1, mpi_integer, recvcounts, &
+                      1, mpi_integer, mstrid, mpicom, ierr)
+
+      ! Figure global displacements
+      if (masterproc) then
+         rdispls(1) = 0
+         do ie = 2, npes
+            rdispls(ie) = rdispls(ie-1) + recvcounts(ie-1)
+         end do
+         ! Check to make sure we counted correctly
+         if (rdispls(npes) + recvcounts(npes) /= ncol) then
+            call endrun(sub//': bad rdispls array size')
+         end if
+      end if
+
+      ! Gather up global latitudes
+      call mpi_gatherv(dp_lat, fv_nphys*fv_nphys*nelemd, mpi_real8, rbuf,     &
+                       recvcounts, rdispls, mpi_real8, mstrid, mpicom, ierr)
+
+      ! Reorder to global order
+      if (masterproc) call dp_reoorder(rbuf, clat)
+
+      ! Send everyone else the data
+      call mpi_bcast(clat, ncol, mpi_real8, mstrid, mpicom, ierr)
+
+      ! Gather up global longitudes
+      call mpi_gatherv(dp_lon, fv_nphys*fv_nphys*nelemd, mpi_real8, rbuf,     &
+                       recvcounts, rdispls, mpi_real8, mstrid, mpicom, ierr)
+
+      ! Reorder to global order
+      if (masterproc) call dp_reoorder(rbuf, clon)
+
+      ! Send everyone else the data
+      call mpi_bcast(clon, ncol, mpi_real8, mstrid, mpicom, ierr)
+
+      ! Create degree versions if requested
+      if (present(lat_out)) then
+         lat_out(:) = clat(:) * rad2deg
+      end if
+      if (present(lon_out)) then
+         lon_out(:) = clon(:) * rad2deg
+      end if
+
+      deallocate(dp_lon)
+      deallocate(dp_lat)
+
+   else ! physics uses the GLL grid
+
+      allocate(rbuf(ngcols_d))
+
+      do ie = 1, nelemdmax
+
+         if(ie <= nelemd) then
+            rdispls(iam+1)    = elem(ie)%idxp%UniquePtOffset - 1
+            eb                = rdispls(iam+1) + elem(ie)%idxp%NumUniquePts
+            recvcounts(iam+1) = elem(ie)%idxP%NumUniquePts
+
+            call UniqueCoords(elem(ie)%idxP, elem(ie)%spherep, &
+                              clat(rdispls(iam+1)+1:eb), clon(rdispls(iam+1)+1:eb))
+
+            if (present(lat_out)) then
+               lat_out(rdispls(iam+1)+1:eb) = clat(rdispls(iam+1)+1:eb) * rad2deg
+            end if
+
+            if (present(lon_out)) then
+               lon_out(rdispls(iam+1)+1:eb) = clon(rdispls(iam+1)+1:eb) * rad2deg
+            end if
+
+         else
+            rdispls(iam+1) = 0
+            recvcounts(iam+1) = 0
+         end if
+
+         ibuf = rdispls(iam+1)
+         call mpi_allgather(ibuf, 1, mpi_integer, rdispls, &
+                            1, mpi_integer, mpicom, ierr)
+
+         ibuf = recvcounts(iam+1)
+         call mpi_allgather(ibuf, 1, mpi_integer, recvcounts, &
+                            1, mpi_integer, mpicom, ierr)
+
+         sb = rdispls(iam+1) + 1
+         eb = rdispls(iam+1) + recvcounts(iam+1)
+
+         rbuf(1:recvcounts(iam+1)) = clat(sb:eb)  ! whats going to happen if end=0?
+         call mpi_allgatherv(rbuf, recvcounts(iam+1), mpi_real8, clat,         &
+                             recvcounts(:), rdispls(:), mpi_real8, mpicom, ierr)
+
+         if (present(lat_out)) then
+            rbuf(1:recvcounts(iam+1)) = lat_out(sb:eb)
+            call mpi_allgatherv(rbuf, recvcounts(iam+1), mpi_real8, lat_out,    &
+                                recvcounts(:), rdispls(:), mpi_real8, mpicom, ierr)
+         end if
+
+         rbuf(1:recvcounts(iam+1)) = clon(sb:eb)
+         call mpi_allgatherv(rbuf, recvcounts(iam+1), mpi_real8, clon,         &
+                             recvcounts(:), rdispls(:), mpi_real8, mpicom, ierr)
+
+         if (present(lon_out)) then
+            rbuf(1:recvcounts(iam+1)) = lon_out(sb:eb)
+            call mpi_allgatherv(rbuf, recvcounts(iam+1), mpi_real8, lon_out,    &
+                                recvcounts(:), rdispls(:), mpi_real8, mpicom, ierr)
+         end if
+
+      end do  ! ie = 1, nelemdmax
+
+   end if  ! (fv_nphys > 0)
+
+end subroutine create_global_coords
+
+!=========================================================================================
+
+end module dyn_grid
