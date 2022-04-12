@@ -49,6 +49,7 @@ and slower, more accurate solvers (for science).
    /cube-sphere/grid-code
    /cube-sphere/cslam
    /cube-sphere/terminology
+   /cube-sphere/pio
 
 .. toctree::
    :maxdepth: 2
