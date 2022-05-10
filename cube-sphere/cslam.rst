@@ -96,12 +96,12 @@ Location within CESM
 
 * ./ChangeLog
 
-The meaning of the "physics" grid
-=================================
+The meaning of the physics grid
+===============================
 
-Judging from context, when the documentation talks about the "physics" grid 
-when CAM-SE is being used, it is referring to the finite volume method grid
-upon which CSLAM is being executed:
+When the documentation talks about the "physics" grid when CAM-SE is being
+used, it is referring to the finite volume method grid upon which CSLAM is
+being executed:
 
 .. code-block::
 
@@ -113,6 +113,15 @@ upon which CSLAM is being executed:
    physics grid has been removed.  Instead all constituents are initially
    set on the GLL grid, then mapped to the physics grid when CSLAM is used.
    [...]
+
+Running the physics grid at lower resolution
+============================================
+
+Herrington et al., 2019a [1]_ show that the physics grid can be run at lower
+resolution on the pg2 grid (which subdivides the cube sphere into 2x2 control
+volumes) with negligible ill-effects when compared to running at a higher
+resolution on the pg3 grid (which subdivides the cube sphere into 3x3 control
+volumes).
 
 References
 ==========
