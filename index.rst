@@ -58,6 +58,7 @@ and slower, more accurate solvers (for science).
    :caption: CAM Scaffolding
 
    /cam/advection
+   /cam/atmos_phys
    /cam/chemistry
    /cam/control
    /cam/cpl
