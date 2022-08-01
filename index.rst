@@ -55,6 +55,21 @@ and slower, more accurate solvers (for science).
 .. toctree::
    :maxdepth: 2
    :hidden:
+   :caption: CAM Scaffolding
+
+   /cam/advection
+   /cam/chemistry
+   /cam/control
+   /cam/cpl
+   /cam/dynamics
+   /cam/ionosphere
+   /cam/physics
+   /cam/unit_drivers
+   /cam/utils
+
+.. toctree::
+   :maxdepth: 2
+   :hidden:
    :caption: Data Assimilation
 
    data-assimilation/dart
