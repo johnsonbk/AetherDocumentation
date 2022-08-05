@@ -2,6 +2,8 @@
 chemistry
 #########
 
+Contains many subdirectories for computing chemistry: 
+
 - ``aerosol``
 - ``bulk_aero``
 - ``modal_aero``

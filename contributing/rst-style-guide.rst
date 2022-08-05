@@ -41,8 +41,6 @@ Link Examples
 
 - `Working link`_ will take us to the paragraph that begins with,
   "This link target works."
-- `Broken link`_ won't take us to the paragraph that begins with,
-  "This link target is broken."
 
 Headers are also link targets by default. See, for example, how this makes a
 link to the `useful syntax`_ section even though the header is capitalized and
@@ -68,13 +66,6 @@ This *link target* works. It works because there is a new line separating the
 link target and the text. It is often the case when using reStructuredText that
 proper syntax includes a new line to delineate the parts of a particular
 structure.
-
-.. _`Broken link`:
-This *link target* is broken. It is broken because there isn't a new line
-separating the link target and the text. View this paragraph by clicking the
-pencil icon to compare the whitespace in between the "Broken link" target
-above this paragraph and the whitespace between the "Working link" target above
-the preceding paragraph.
 
 Useful Syntax
 =============
