@@ -2,6 +2,12 @@
 chemistry
 #########
 
+.. note::
+
+   I'm skipping extensive documentation of this subdirectory since it isn't 
+   immediately relevant to the project. My hunch is that ``pp*`` stands for 
+   physics package, but I'm not sure if that's true.
+
 Contains many subdirectories for computing chemistry: 
 
 - ``aerosol``
