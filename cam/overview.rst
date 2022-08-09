@@ -2,7 +2,19 @@
 Overview
 ########
 
-This section contains documents corresponding to each of the subdirectories in
+.. important::
+
+   The `CAM Reference Manual <https://www.cesm.ucar.edu/models/cesm1.2/cam/docs/rm5_3/rm.html>`_ 
+   is more comprehensive than the current
+   `CESM2.X documentation <https://ncar.github.io/CAM/doc/build/html/index.html>`_.
+   It even says that, "This manual is intended for anyone who plans to get
+   their hands dirty modifying CAM code."
+
+   For example, this `CESM1.2 Physics Driver <https://www.cesm.ucar.edu/models/cesm1.2/cam/docs/rm5_3/ch04.html>`_ 
+   page in the reference manual doesn't seem to have an analog in the CESM2.X
+   documentation.
+
+This collection contains pages corresponding to each of the subdirectories in
 ``cesm/components/cam/src/`` that describes what each of the subdirectories
 contains.
 
@@ -18,11 +30,50 @@ contains.
 - :doc:`/cam/unit_drivers`
 - :doc:`/cam/utils/`
 
-.. important::
+Nomenclature
+============
 
-   Oftentimes it seems that the documentation from CESM1.X is more
-   comprehensive than the current
-   `CESM2.X documentation <https://ncar.github.io/CAM/doc/build/html/index.html>`_.
-   For example, this `CESM1.2 Physics Driver <https://www.cesm.ucar.edu/models/cesm1.2/cam/docs/rm5_3/ch04.html>`_ 
-   page doesn't seem to have an analog in the CESM2.X documentation.
+CAM distinguishes between `Dynamical cores`_ and `Physics packages`_. State 
+variables are updated first by the dynamics and then by the physics. Both the
+dynamical cores and the physics packages are implemented in a modular fashion
+and plug into the model infrastructure using an interface. 
 
+Dynamical cores
+---------------
+
+Dynamical cores are numerical methods implemented on specific model grids that
+simulate the large scale atmospheric flow. `CAM supports several dynamical
+cores <https://www.cesm.ucar.edu/events/wg-meetings/2017/presentations/plenary/lauritzen.pdf>`_
+including the:
+
+- EUL (Eulerian spectral-transform)
+- SLD (semi-Lagrangian spectral-transform)
+- FV (finite-volume)
+- SE (spectral-elements)
+
+Physics packages
+----------------
+
+Physics packages implement parameterized physical processes within a single
+column of the model grid. This functionality is often called a *vertical
+solver* within the space weather community.
+
+Kalnay et al. (1989) [1]_ describe eleven rules to ensure physics package
+interoperability. Packages should only be responsible for performing a
+calculation upon either a single column or a limited section of the model's
+state. Other aspects of model integration such as communication,
+parallelization, input and output are handled by the support infrastructure
+within the model.
+
+These standards allow for modularity and were developed in response to the
+difficulty of inserting and comparing physics schemes into a given model.
+
+
+References
+==========
+
+.. [1] Kalnay, E., M. Kanamitsu, J. Pfaendtner, J. Sela, M. Suarez, J. 
+       Stackpole, J. Tuccillo, L. Umscheid, and D. Williamson., 1989: Rules for
+       Interchange of Physical Parameterizations. Bulletin of the American
+       Meteorological Society, 70, 620–622,
+       https://journals.ametsoc.org/view/journals/bams/70/6/1520-0477_1989_070_0620_rfiopp_2_0_co_2.xml.
