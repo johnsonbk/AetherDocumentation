@@ -7,28 +7,12 @@ Overview
    The `CAM Reference Manual <https://www.cesm.ucar.edu/models/cesm1.2/cam/docs/rm5_3/rm.html>`_ 
    is more comprehensive than the current
    `CESM2.X documentation <https://ncar.github.io/CAM/doc/build/html/index.html>`_.
-   It even says that, "This manual is intended for anyone who plans to get
-   their hands dirty modifying CAM code."
+   It even says, "This manual is intended for anyone who plans to get their
+   hands dirty modifying CAM code."
 
    For example, this `CESM1.2 Physics Driver <https://www.cesm.ucar.edu/models/cesm1.2/cam/docs/rm5_3/ch04.html>`_ 
    page in the reference manual doesn't seem to have an analog in the CESM2.X
    documentation.
-
-This collection contains pages corresponding to each of the subdirectories in
-``cesm/components/cam/src/`` that describes what each of the subdirectories
-contains.
-
-- :doc:`/cam/advection`
-- :doc:`/cam/atmos_phys`
-- :doc:`/cam/chemistry`
-- :doc:`/cam/control`
-- :doc:`/cam/cpl`
-- :doc:`/cam/dynamics`
-- :doc:`/cam/ionosphere`
-- :doc:`/cam/overview`
-- :doc:`/cam/physics`
-- :doc:`/cam/unit_drivers`
-- :doc:`/cam/utils/`
 
 Nomenclature
 ============
@@ -68,6 +52,34 @@ within the model.
 These standards allow for modularity and were developed in response to the
 difficulty of inserting and comparing physics schemes into a given model.
 
+Coding standards
+================
+
+CAM doesn't have a strict set of coding standards because much of its source
+code was contributed by the community. However, the UCAR wiki has a `draft of
+coding standards for CAM <https://wiki.ucar.edu/display/ccsm/Draft+of+Coding+Standards+for+CAM>`_.
+The document nodes that most of the code is preprocessed with Fortran
+preprocessor, ``fpp``, which is not officially a part of the Fortran language
+standard.
+
+Directory structure
+===================
+
+This collection contains pages corresponding to each of the subdirectories in
+``cesm/components/cam/src/`` that describes what each of the subdirectories
+contains.
+
+- :doc:`/cam/advection`
+- :doc:`/cam/atmos_phys`
+- :doc:`/cam/chemistry`
+- :doc:`/cam/control`
+- :doc:`/cam/cpl`
+- :doc:`/cam/dynamics`
+- :doc:`/cam/ionosphere`
+- :doc:`/cam/overview`
+- :doc:`/cam/physics`
+- :doc:`/cam/unit_drivers`
+- :doc:`/cam/utils/`
 
 References
 ==========

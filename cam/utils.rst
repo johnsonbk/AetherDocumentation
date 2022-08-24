@@ -2,6 +2,11 @@
 utils
 #####
 
+.. important::
+
+   ``physconst.F90`` contains many of the physical constants that are used
+   throughout the model.
+
 - ``CMakeLists.txt``
 - ``bnddyi.F90``
 - ``buffer.F90.in``

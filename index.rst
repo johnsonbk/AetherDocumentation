@@ -72,6 +72,13 @@ and slower, more accurate solvers (for science).
 .. toctree::
    :maxdepth: 2
    :hidden:
+   :caption: WACCM-X
+
+   /waccm-x/overview
+
+.. toctree::
+   :maxdepth: 2
+   :hidden:
    :caption: Data Assimilation
 
    data-assimilation/dart
