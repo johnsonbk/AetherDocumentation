@@ -128,14 +128,81 @@ Try again by checking out a slightly older tag.
 .. error::
 
    ERROR: Command /glade/work/johnsonb/cesm2_3_0/components/clm/bld/build-namelist failed rc=255
-   out=
-   err=ERROR : CLM build-namelist::CLMBuildNamelist::add_default() : No default value found for flanduse_timeseries.
-               Are defaults provided for this resolution and land mask?
+   out= err=ERROR : CLM build-namelist::CLMBuildNamelist::add_default() : No default value found for flanduse_timeseries.
+   Are defaults provided for this resolution and land mask?
 
 Well this is progress. 
 
 Doing a triage of which beta releases of cesm2_3_0 provide the most plausible
 path toward compilation.
+
+Failed attempts until success with the ``ne30`` grid
+====================================================
+
+This might be simple to fix. According to this `CGD BB post <https://bb.cgd.ucar.edu/cesm/threads/preview_namelist-error-clm-build-namelist-clmbuildnamelist-add_default-no-default-value-found-for-fsurdat.6434/>`_,
+It could merely be that there is a missing timeseries file that CLM needs.
+
+Create a stock ``FHIST`` case and see how this is specified.
+
+.. code-block::
+
+   cd /glade/work/johnsonb/cesm2_1_3/cime/scripts
+   export CASEROOT='/glade/work/johnsonb/cases/f.e213.FHIST.f09_g17.001'
+   ./create_newcase --res f09_g17 --compset FHIST --case $CASEROOT --mach cheyenne --project $DARES_PROJECT --run-unsupported
+   cd $CASEROOT
+   ./case.setup
+   ./preview_namelists
+   grep -Rl flanduse_timeseries ./
+   ./Buildconf/clmconf/lnd_in
+   ./Buildconf/clm.input_data_list
+   ./CaseDocs/lnd_in
+
+There is no ``lnd_in`` file for the ``ne16_g17`` cases. I attempted to set up
+a case with the ``ne16_g17`` grid and the ``FHIST`` compset (instead of
+``FXHIST``) and ran into the same error. However, it was possible to build
+the namelist for a case with the ``ne30_g17`` grid and the ``FHIST`` compset.
+
+.. code-block::
+
+   cd /glade/work/johnsonb/cesm2_2_0/cime/scripts
+   export CASEROOT='/glade/work/johnsonb/cases/f.e220.FHIST.ne30_g17.001'
+   ./create_newcase --res ne30_g17 --compset FHIST --case $CASEROOT --mach cheyenne --project $DARES_PROJECT --run-unsupported
+   cd $CASEROOT
+   ./case.setup
+   ./preview_namelists
+   grep -Rl flanduse_timeseries ./
+   ./Buildconf/clmconf/lnd_in
+   ./Buildconf/clm.input_data_list
+   ./CaseDocs/lnd_in
+
+.. important::
+
+   The key here to realize is that most of the spectral element dycore work is
+   done on the ``ne30`` grid (approximately 1° horizontal resolution) while 
+   most of the WACCM-X work is done on the ``f19`` grid (approximately 2° 
+   horizontal resolution and the finite volume analog of the ``ne16`` spectral
+   element grid). The question now is: can a case be built using the
+   ``ne30_g17`` grid and the ``FXHIST`` compset?
+
+.. code-block::
+
+   cd /glade/work/johnsonb/git/cesm2_3_0_beta09/cime/scripts
+   export CASEROOT='/glade/work/johnsonb/cases/f.e230b9.FXHIST.ne30_g17.001'
+   ./create_newcase --res ne30_g17 --compset FXHIST --case $CASEROOT --mach cheyenne --project $DARES_PROJECT --run-unsupported
+   cd $CASEROOT
+   ./case.setup
+   ./preview_namelists
+   grep -Rl flanduse_timeseries ./
+   ./Buildconf/clmconf/lnd_in
+   ./Buildconf/clm.input_data_list
+   ./CaseDocs/lnd_in
+   ./case.build
+   MODEL BUILD HAS FINISHED SUCCESSFULLY
+
+.. note::
+
+   Hooray!
+
 
 References
 ==========
@@ -151,4 +218,5 @@ References
        Dry-Mass Vertical Coordinates With Comprehensive Treatment of
        Condensates and Energy. *Journal of Advances in Modeling Earth Systems*,
        **10**, 1537–1570, https://doi.org/10.1029/2017MS001257.
+
 
