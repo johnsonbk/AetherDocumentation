@@ -42,3 +42,9 @@ Thumbs.db
 # Editor backup files #
 #######################
 *~
+
+# Local temporary files #
+#########################
+
+scratch.rst
+
