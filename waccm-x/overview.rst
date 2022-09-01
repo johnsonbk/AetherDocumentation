@@ -201,8 +201,109 @@ the namelist for a case with the ``ne30_g17`` grid and the ``FHIST`` compset.
 
 .. note::
 
-   Hooray!
+   Hooray! However, I don't know where the preprocessed source files are
+   contained.
 
+There is a list of the source files in
+``/glade/scratch/johnsonb/f.e230b9.FXHIST.ne30_g17.001/bld/atm/obj/Srcfiles``
+but I don't know where the files actually are.
+
+For example one of the files is ``cam_history.F90``:
+
+.. code-block::
+
+   cd /glade/scratch/johnsonb/f.e230b9.FXHIST.ne30_g17.001
+   find . -name cam_history.F90
+   [ Returns nothing ]
+   cd /glade/work/johnsonb/cases/f.e230b9.FXHIST.ne30_g17.001
+   find . -name cam_history.F90
+   [ Returns nothing ]
+
+Getting the compiler to save the post-preprocessed files
+========================================================
+
+While there is a directory for ``build_scripts`` in ``cime/src/build_scripts``,
+each of the scripts in that subdirectory import ``CIME.buildlib`` which is 
+in ``cime/scripts/lib/CIME/buildlib.py``.
+
+``buildlib.py``
+---------------
+
+This python script contains three functions: ``parse_input``,
+``build_cime_component_lib`` and ``run_gmake``. The last function actually
+invokes ``gmake`` to build a component executable. The tractable path forward
+seems to be to see if we can get these functions to preprocess the files
+and save them.
+
+Editing ``buildlib.py`` to print the commands within ``run_gmake``:
+
+.. code-block::
+
+   vim /glade/work/johnsonb/git/cesm2_3_0_beta09/cime/scripts/lib/CIME/buildlib.py
+   102     print('BKJ inserted this: ', cmd)
+   103     stat, out, err = run_cmd(cmd, combine_output=True)
+
+Appending ``-E`` to the compiler flags
+======================================
+
+Helen's suggestion at the 2022-08-30 standup was to append ``-E`` as a compiler
+flag in ``/glade/work/johnsonb/git/cesm2_3_0_beta09/cime/config/cesm/machines/config_compilers.xml``.
+
+.. code-block::
+
+   903 <compiler MACH="cheyenne" COMPILER="intel">
+   904   <CFLAGS>
+   905     <append> -qopt-report -xCORE_AVX2 -no-fma -E</append>
+   906   </CFLAGS>
+   907   <FFLAGS>
+   908     <append> -qopt-report -xCORE_AVX2 -no-fma -E</append>
+   909   </FFLAGS>
+   [ ... ]
+   917 </compiler>
+
+Tried this both with ``cesm2_3_0_beta09`` and ``cesm2_3_0_beta02`` and it
+doesn't work:
+
+.. error::
+
+   ERROR: /glade/work/johnsonb/git/cesm2_3_0_beta02/cime/src/build_scripts/buildlib.gptl
+   FAILED, cat /glade/scratch/johnsonb/f.e230b2.FXHIST.ne30_g17.001/bld/gptl.bldlog.220831-140809
+
+Appending ``-save-temps`` to the compiler flags
+===============================================
+
+This `page within the iFort guide <https://www.intel.com/content/www/us/en/develop/documentation/fortran-compiler-oneapi-dev-guide-and-reference/top/compiler-reference/compiler-options/miscellaneous-options/save-temps-qsave-temps.html>`_ 
+suggests that the ``-save-temps`` compile flag will save the preprocessed files.
+
+.. code-block::
+
+   vim /glade/work/johnsonb/git/cesm2_3_0_beta09/cime/config/cesm/machines/config_compilers.xml
+
+   903 <compiler MACH="cheyenne" COMPILER="intel">
+   904   <CFLAGS>
+   905     <append> -qopt-report -xCORE_AVX2 -no-fma -save-temps</append>
+   906   </CFLAGS>
+   907   <FFLAGS>
+   908     <append> -qopt-report -xCORE_AVX2 -no-fma -save-temps</append>
+   909   </FFLAGS>
+   [ ... ]
+   917 </compiler>
+
+Then build the case:
+
+.. code-block::
+
+   cd /glade/work/johnsonb/git/cesm2_3_0_beta09/cime/scripts
+   export CASEROOT='/glade/work/johnsonb/cases/f.e230b9.FXHIST.ne30_g17.004'
+   ./create_newcase --res ne30_g17 --compset FXHIST --case $CASEROOT --mach cheyenne --project $DARES_PROJECT --run-unsupported
+   cd $CASEROOT
+   ./case.setup
+   ./case.build
+   [ ... ]
+   MODEL BUILD HAS FINISHED SUCCESSFULLY
+   cd /glade/scratch/johnsonb/f.e230b9.FXHIST.ne30_g17.004/bld/atm/obj
+   ls *.i90
+   # This shows all of the post-preprocessed files.
 
 References
 ==========
