@@ -75,6 +75,8 @@ and slower, more accurate solvers (for science).
    :caption: WACCM-X
 
    /waccm-x/overview
+   /waccm-x/raw-compile
+   /waccm-x/compiling-with-mkmf
 
 .. toctree::
    :maxdepth: 2
