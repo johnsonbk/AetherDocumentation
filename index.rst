@@ -77,6 +77,7 @@ and slower, more accurate solvers (for science).
    /waccm-x/overview
    /waccm-x/raw-compile
    /waccm-x/compiling-with-mkmf
+   /waccm-x/linking-to-esmf
 
 .. toctree::
    :maxdepth: 2

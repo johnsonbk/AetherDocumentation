@@ -54,4 +54,20 @@ function that are selected by the preprocessor:
    1834     call ESMF_ClockGetAlarmList(EClock, EAlarm_list, rc=rc)
    1835 #endif
 
+ESMF_FIELD
+----------
+
+.. error::
+
+   /glade/work/johnsonb/git/cesm2_3_0_beta09/components/cam/src/ionosphere/waccmx/utils_mod.F90(5): error #6580: Name in only-list does not exist or is not accessible.   [ESMF_FIELD]
+   use esmf           ,only: ESMF_FIELD
+   ----------------------------^
+   compilation aborted for /glade/scratch/johnsonb/mkmf_target/utils_mod.f90 (code 1)
+
+Comment out the use statement in the processed file:
+
+.. code-block::
+
+   vim /glade/scratch/johnsonb/mkmf_target/utils_mod.f90 
+   ! use esmf           ,only: ESMF_FIELD
 
