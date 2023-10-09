@@ -42,6 +42,13 @@ and slower, more accurate solvers (for science).
 .. toctree::
    :maxdepth: 2
    :hidden:
+   :caption: OSSE
+
+   /osse/overview
+
+.. toctree::
+   :maxdepth: 2
+   :hidden:
    :caption: Cube Sphere
 
    /cube-sphere/installing-cesm
@@ -78,6 +85,13 @@ and slower, more accurate solvers (for science).
    /waccm-x/raw-compile
    /waccm-x/compiling-with-mkmf
    /waccm-x/linking-to-esmf
+
+.. toctree::
+   :maxdepth: 2
+   :hidden:
+   :caption: TIEGCM
+
+   /tiegcm/overview
 
 .. toctree::
    :maxdepth: 2
