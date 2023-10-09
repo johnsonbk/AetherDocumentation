@@ -22,4 +22,13 @@ The development branch for the Aether model is far ahead of ``main`` branch.
 It is accessible via the
 `AetherModel/Aether repository on Github <https://github.com/AetherModel/Aether/tree/develop>`_.
 
+Plotting the cube sphere
+~~~~~~~~~~~~~~~~~~~~~~~~
 
+Using ``~/work/git/AetherPlotting/plot_cube.py`` results in:
+
+|scatter|
+
+.. |scatter| image:: /_static/scatter.png
+   :width: 900
+   :alt: Scatter plot of the Aether cube sphere
