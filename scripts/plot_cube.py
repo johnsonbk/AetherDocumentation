@@ -24,7 +24,7 @@ for ifile, this_file in enumerate(files):
     f.close()
 
 ax.legend()
-plt.title('')
+plt.title('Grid file correspondence to cube sphere face')
 plt.ylabel('Latitude')
 plt.xlabel('Longitude')
 plt.savefig('scatter.png', dpi=200)
