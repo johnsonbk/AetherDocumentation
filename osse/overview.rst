@@ -25,7 +25,7 @@ It is accessible via the
 Plotting the cube sphere
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-Using ``~/work/git/AetherPlotting/plot_cube.py`` results in:
+Using ``/scripts/plot_cube.py`` results in:
 
 |scatter|
 
