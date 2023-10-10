@@ -29,6 +29,6 @@ Using ``/scripts/plot_cube.py`` results in:
 
 |scatter|
 
-.. |scatter| image:: /_static/scatter.png
+.. |scatter| image:: /_static/cube_scatter.png
    :width: 900
    :alt: Scatter plot of the Aether cube sphere
