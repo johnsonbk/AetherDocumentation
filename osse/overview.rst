@@ -35,7 +35,7 @@ Headers from each of the files
 - The ``below`` file has an ``Altitude`` dimension and an extra ``z`` index
 - The ``down`` file has ``Longitude Down`` and ``Latitude Down`` and an extra ``y`` index
 - The ``left`` file has ``Longitude Left`` and ``Latitude Left`` and an extra ``x`` index
-- The ``corners`` file has ``Longitude Corners``, ``Latitude Corners``, ``Altitude Corners`` and an extra ``x``, ``y`` and ``z`` index
+- The ``corners`` file has ``Longitude Corners``, ``Latitude Corners``, ``Altitude Corners`` and extra ``x``, ``y`` and ``z`` indices
 - The file without an appended descriptor has ``Longitude``, ``Latitude`` and ``Altitude``
 
 below
@@ -200,6 +200,113 @@ Cube sphere grid
 The cube sphere grid files are grouped in sets of six, numbered as ``0000``, 
 ``0001``, ``0002``, ``0003``, ``0004``, ``0005``.
 
+Headers from each of the cube sphere files
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- All files have a ``time`` dimension
+- The ``below`` file has an ``Altitude`` dimension and an extra ``z`` index
+- The ``down`` file has ``Longitude Down`` and ``Latitude Down`` and an extra ``y`` index
+- The ``left`` file has ``Longitude Left`` and ``Latitude Left`` and an extra ``x`` index
+- The ``corners`` file has ``Longitude Corners``, ``Latitude Corners``, ``Altitude Corners`` and extra ``x``, ``y`` and ``z`` indices
+- The file without an appended descriptor has ``Longitude``, ``Latitude`` and ``Altitude``
+
+below
+~~~~~
+
+.. code-block::
+
+   netcdf grid_below_g0000 {
+   dimensions:
+      x = 22 ;
+      y = 22 ;
+      z = 45 ;
+      time = 1 ;
+   variables:
+      double time(time) ;
+      float Altitude Below(x, y, z) ;
+         Altitude Below:units = "meters" ;
+   }
+
+down
+~~~~
+
+.. code-block::
+
+   netcdf grid_down_g0000 {
+   dimensions:
+      x = 22 ;
+      y = 23 ;
+      z = 44 ;
+      time = 1 ;
+   variables:
+      double time(time) ;
+      float Longitude Down(x, y, z) ;
+         Longitude Down:units = "radians" ;
+      float Latitude Down(x, y, z) ;
+         Latitude Down:units = "radians" ;
+   }
+
+left
+~~~~
+
+.. code-block::
+
+   netcdf grid_left_g0000 {
+   dimensions:
+      x = 23 ;
+      y = 22 ;
+      z = 44 ;
+      time = 1 ;
+   variables:
+      double time(time) ;
+      float Longitude Left(x, y, z) ;
+         Longitude Left:units = "radians" ;
+      float Latitude Left(x, y, z) ;
+         Latitude Left:units = "radians" ;
+   }
+
+corners
+~~~~~~~
+
+.. code-block::
+
+   netcdf grid_corners_g0000 {
+   dimensions:
+      x = 23 ;
+      y = 23 ;
+      z = 45 ;
+      time = 1 ;
+   variables:
+      double time(time) ;
+      float Longitude Corners(x, y, z) ;
+         Longitude Corners:units = "radians" ;
+      float Latitude Corners(x, y, z) ;
+         Latitude Corners:units = "radians" ;
+      float Altitude Corners(x, y, z) ;
+         Altitude Corners:units = "meters" ;
+   }
+   
+grid
+~~~~
+
+.. code-block::
+
+   netcdf grid_g0000 {
+   dimensions:
+      x = 22 ;
+      y = 22 ;
+      z = 44 ;
+      time = 1 ;
+   variables:
+      double time(time) ;
+      float Longitude(x, y, z) ;
+         Longitude:units = "radians" ;
+      float Latitude(x, y, z) ;
+         Latitude:units = "radians" ;
+      float Altitude(x, y, z) ;
+         Altitude:units = "meters" ;
+   }
+
 Using ``/scripts/plot_cube.py`` to plot the lowest level of latitudes and
 longitudes in this set of six grid files:
 
@@ -217,3 +324,17 @@ results in this plot that shows the overlap of the faces:
 .. |cube_scatter| image:: /_static/cube_scatter.png
    :width: 900
    :alt: Scatter plot of the Aether cube sphere
+
+
+Truncating the cube sphere grids to remove the halos
+----------------------------------------------------
+
+By truncating the first and last two indices from each file, the resulting plot
+has no overlap of the grid files.
+
+|cube_scatter_truncated|
+
+.. |cube_scatter_truncated| image:: /_static/cube_scatter_truncated.png
+   :width: 900
+   :alt: Scatter plot of the truncated Aether latitude/longitude sphere
+

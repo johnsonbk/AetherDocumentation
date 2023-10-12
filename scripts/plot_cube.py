@@ -29,3 +29,24 @@ plt.title('Grid file correspondence to cube sphere face')
 plt.ylabel('Latitude')
 plt.xlabel('Longitude')
 plt.savefig('../_static/cube_scatter.png', dpi=200, transparent=True, bbox_inches='tight')
+
+# Truncate the latitudes and longitudes so there is no overlap
+
+fig, ax = plt.subplots()
+
+for ifile, this_file in enumerate(files):
+    f = netCDF4.Dataset(this_file)
+
+    # Slice the longitude and latitude arrays to only include the lowest altitude
+    lons = f.variables['Longitude'][2:-2, 2:-2, 0]*radians_to_degrees
+    lats = f.variables['Latitude'][2:-2, 2:-2, 0]*radians_to_degrees
+
+    ax.scatter(lons, lats, c=colors[ifile], alpha=0.3, edgecolors='none', label='Grid ' + str(ifile).zfill(4))
+    f.close()
+
+ax.legend(loc='lower right')
+plt.title('[2:-2, 2:-2] Truncated grid file correspondence to cube sphere')
+plt.ylabel('Latitude')
+plt.xlabel('Longitude')
+plt.savefig('../_static/cube_scatter_truncated.png', dpi=200, transparent=True, bbox_inches='tight')
+plt.clf()
