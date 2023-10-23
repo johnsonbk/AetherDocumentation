@@ -52,7 +52,7 @@ for ikey in input_file.variables:
         for iblock in range(0, nblocks):
             print('stitched_array[0:nlons_in_block-ntruncate, 0:nlats_in_block-ntruncate, :].shape()', stitched_array[0:nlons_in_block-2*ntruncate, 0:nlats_in_block-2*ntruncate, :].shape)
             print('input_field[iblock, ntruncate:-ntruncate, ntruncate:-ntruncate, :].shape()', input_field[iblock, ntruncate:-ntruncate, ntruncate:-ntruncate, :].shape)
-            
+
             if iblock == 0:
                 stitched_array[0:nlons_in_block-2*ntruncate, 0:nlats_in_block-2*ntruncate, :] = input_field[iblock, ntruncate:-ntruncate, ntruncate:-ntruncate, :]
             elif iblock == 1:
@@ -64,7 +64,7 @@ for ikey in input_file.variables:
 
         output_field = output_file.createVariable(ikey, np.float32, ('lon','lat','z'))
         output_field.units = input_field.units
-        output_field.long_name = input_field.units
+        output_field.long_name = input_field.long_name
         output_field[:] = stitched_array
 
 output_file.close()
@@ -78,3 +78,4 @@ plt.clf()
 plt.pcolor(input_field[2, :, :, -1], vmin=input_field[2, :, :, -1].min(), vmax=input_field[2, :, :, -1].max())
 plt.colorbar()
 plt.savefig('pcolor_on_input_field.png')
+
