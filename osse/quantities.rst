@@ -3,14 +3,10 @@ Quantities
 
 Aether's state variable keys must be mapped to DART quantities.
 
-.. note::
-
-   We might run into problems with escaped spaces because Aether variable keys
-   are inconsistent with `CF Metadata Conventions <https://cfconventions.org/>`_
-   which state, "Variable, dimension, attribute and group names should begin
-   with a letter and be composed of letters, digits, and underscores."
-   For example the Aether variable key corresponding to ``QTY_TEMPERATURE_ION``
-   is ``Bulk\ Ion\ Temperature``.
+Aaron will be updating the variable keys so they are consistent with
+`CF Metadata Conventions <https://cfconventions.org/>`_ which state,
+"Variable, dimension, attribute and group names should begin with a
+letter and be composed of letters, digits, and underscores."
 
 The Aether variables in the table below match eight of the nine variables in
 DART's default configuration of ``model_nml`` for TIEGCM. The omitted TIEGCM
