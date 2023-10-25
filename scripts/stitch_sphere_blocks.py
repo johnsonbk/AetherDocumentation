@@ -45,6 +45,9 @@ for ikey in input_file.variables:
     if ikey == 'time':
         pass
     else:
+
+        formatted_key = ikey.lower().strip('\\').replace(' ', '_').replace('+','p').replace('-','n')
+
         stitched_array = np.empty((nlons, nlats, nzs))
 
         input_field = input_file.variables[ikey]
@@ -62,7 +65,7 @@ for ikey in input_file.variables:
             elif iblock == 3:
                 stitched_array[nlons_in_block-2*ntruncate:, nlats_in_block-2*ntruncate: :] = input_field[iblock, ntruncate:-ntruncate, ntruncate:-ntruncate, :]
 
-        output_field = output_file.createVariable(ikey, np.float32, ('lon','lat','z'))
+        output_field = output_file.createVariable(formatted_key, np.float32, ('lon','lat','z'))
         output_field.units = input_field.units
         output_field.long_name = input_field.long_name
         output_field[:] = stitched_array
