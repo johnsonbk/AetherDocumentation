@@ -40,6 +40,10 @@ time_dim = output_file.createDimension('time', None)
 
 # Write time variable to output file
 time = output_file.createVariable('time', np.double, ('time',))
+time.units = 'seconds since 1965-01-01 0 UTC'
+time.long_name = 'model time'
+input_field = input_file.variables['time']
+time[:] = input_field[:]
 
 for ikey in input_file.variables:
     if ikey == 'time':
