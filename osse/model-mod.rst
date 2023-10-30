@@ -49,3 +49,23 @@ obs_kind_mod
 Contains subroutines such as ``get_index_for_quantity`` and 
 ``get_name_for_quantity``.
 
+location_mod
+============
+
+.. warning::
+
+   In the 5° configuration of Aether, thare are 36 longitude and 36 latitude 
+   grid points. When entering this configuration into ``location_nml``, an
+   error gets thrown when running ``model_mod_check``:
+
+   .. code-block::
+
+      ERROR FROM:
+       source : threed_sphere/location_mod.f90
+       routine: location_mod
+       message: nlon is    36. Must be odd
+
+   To get past this error, I changed ``nlon = 71`` which is the configuration 
+   of GITM, but this doesn't seem correct.
+
+
