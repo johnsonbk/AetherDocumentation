@@ -74,15 +74,19 @@ for ikey in input_file.variables:
         output_field.long_name = input_field.long_name
         output_field[:] = stitched_array
 
+        if formatted_key == 'temperature':
+
+            plt.title('Temperature ('+ output_field.units  +') at highest altitude')
+            plt.pcolor(np.transpose(stitched_array[:, :, -1]), vmin=stitched_array[:, :, -1].min(), vmax=stitched_array[:, :, -1].max())
+            plt.colorbar()
+            plt.savefig('stitched_array.png')
+
+            plt.clf()
+
+            plt.pcolor(input_field[2, :, :, -1], vmin=input_field[2, :, :, -1].min(), vmax=input_field[2, :, :, -1].max())
+            plt.colorbar()
+            plt.savefig('pcolor_on_input_field.png')
+
 output_file.close()
 
-plt.pcolor(stitched_array[:, :, -1], vmin=stitched_array[:, :, -1].min(), vmax=stitched_array[:, :, -1].max())
-plt.colorbar()
-plt.savefig('stitched_array.png')
-
-plt.clf()
-
-plt.pcolor(input_field[2, :, :, -1], vmin=input_field[2, :, :, -1].min(), vmax=input_field[2, :, :, -1].max())
-plt.colorbar()
-plt.savefig('pcolor_on_input_field.png')
 
