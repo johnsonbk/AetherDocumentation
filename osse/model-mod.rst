@@ -25,6 +25,10 @@ The working hypothesis is that in order for ``model_mod_check`` to match the
 in the domain, that ``add_domain_from_file`` must be used and a ``kind_list``
 must be passed to it.
 
+Instead of creating a subroutine to pass the three optional variables to
+``add_domain_from_file``, just define the variables in the model_mod and 
+delete them later.
+
 .. code-block::
 
    character(len=*), intent(in) :: info_file
@@ -44,4 +48,24 @@ obs_kind_mod
 
 Contains subroutines such as ``get_index_for_quantity`` and 
 ``get_name_for_quantity``.
+
+location_mod
+============
+
+.. warning::
+
+   In the 5° configuration of Aether, thare are 36 longitude and 36 latitude 
+   grid points. When entering this configuration into ``location_nml``, an
+   error gets thrown when running ``model_mod_check``:
+
+   .. code-block::
+
+      ERROR FROM:
+       source : threed_sphere/location_mod.f90
+       routine: location_mod
+       message: nlon is    36. Must be odd
+
+   To get past this error, I changed ``nlon = 71`` which is the configuration 
+   of GITM, but this doesn't seem correct.
+
 
