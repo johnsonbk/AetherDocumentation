@@ -49,6 +49,7 @@ and slower, more accurate solvers (for science).
    /osse/tiegcm
    /osse/quantities
    /osse/model-mod
+   /osse/lldb
 
 .. toctree::
    :maxdepth: 2
