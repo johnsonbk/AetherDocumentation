@@ -68,4 +68,13 @@ location_mod
    To get past this error, I changed ``nlon = 71`` which is the configuration 
    of GITM, but this doesn't seem correct.
 
+model_mod_check
+===============
 
+.. error::
+
+   ``model_mod_check`` errors out with a dimension error using the
+   python-generated netCDF files.
+
+Next phase is to implement ``get_state_meta_data`` and ``get_close_state``
+using GITM as a template.
