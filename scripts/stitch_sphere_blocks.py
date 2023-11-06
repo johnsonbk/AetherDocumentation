@@ -52,24 +52,29 @@ for ikey in input_file.variables:
 
         formatted_key = ikey.lower().strip('\\').replace(' ', '_').replace('+','p').replace('-','n')
 
-        stitched_array = np.empty((nlons, nlats, nzs))
+        stitched_array = np.empty((nzs, nlons, nlats))
 
         input_field = input_file.variables[ikey]
 
-        for iblock in range(0, nblocks):
-            print('stitched_array[0:nlons_in_block-ntruncate, 0:nlats_in_block-ntruncate, :].shape()', stitched_array[0:nlons_in_block-2*ntruncate, 0:nlats_in_block-2*ntruncate, :].shape)
-            print('input_field[iblock, ntruncate:-ntruncate, ntruncate:-ntruncate, :].shape()', input_field[iblock, ntruncate:-ntruncate, ntruncate:-ntruncate, :].shape)
+        # Loop through the z levels so that the array can be reordered from lon, lat, z to z, lat, lon
+        for iz in range (0, nzs):
 
-            if iblock == 0:
-                stitched_array[0:nlons_in_block-2*ntruncate, 0:nlats_in_block-2*ntruncate, :] = input_field[iblock, ntruncate:-ntruncate, ntruncate:-ntruncate, :]
-            elif iblock == 1:
-                stitched_array[nlons_in_block-2*ntruncate:, 0:nlats_in_block-2*ntruncate, :] = input_field[iblock, ntruncate:-ntruncate, ntruncate:-ntruncate, :]
-            elif iblock == 2:
-                stitched_array[0:nlons_in_block-2*ntruncate, nlats_in_block-2*ntruncate: :] = input_field[iblock, ntruncate:-ntruncate, ntruncate:-ntruncate, :]
-            elif iblock == 3:
-                stitched_array[nlons_in_block-2*ntruncate:, nlats_in_block-2*ntruncate: :] = input_field[iblock, ntruncate:-ntruncate, ntruncate:-ntruncate, :]
+            for iblock in range(0, nblocks):
+                print('stitched_array[0:nlons_in_block-ntruncate, 0:nlats_in_block-ntruncate, :].shape()', stitched_array[0:nlons_in_block-2*ntruncate, 0:nlats_in_block-2*ntruncate, :].shape)
+                print('input_field[iblock, ntruncate:-ntruncate, ntruncate:-ntruncate, :].shape()', input_field[iblock, ntruncate:-ntruncate, ntruncate:-ntruncate, :].shape)
 
-        output_field = output_file.createVariable(formatted_key, np.float32, ('lon','lat','z'))
+                if iblock == 0:
+                    stitched_array[iz, 0:nlons_in_block-2*ntruncate, 0:nlats_in_block-2*ntruncate] = input_field[iblock, ntruncate:-ntruncate, ntruncate:-ntruncate, iz]
+                elif iblock == 1:
+                    stitched_array[iz, nlons_in_block-2*ntruncate:, 0:nlats_in_block-2*ntruncate] = input_field[iblock, ntruncate:-ntruncate, ntruncate:-ntruncate, iz]
+                elif iblock == 2:
+                    stitched_array[iz, 0:nlons_in_block-2*ntruncate, nlats_in_block-2*ntruncate:] = input_field[iblock, ntruncate:-ntruncate, ntruncate:-ntruncate, iz]
+                elif iblock == 3:
+                    stitched_array[iz, nlons_in_block-2*ntruncate:, nlats_in_block-2*ntruncate:] = input_field[iblock, ntruncate:-ntruncate, ntruncate:-ntruncate, iz]
+
+            stitched_array[iz, :, :] = np.transpose(stitched_array[iz, :, :])
+
+        output_field = output_file.createVariable(formatted_key, np.float32, ('z', 'lat', 'lon',))
         output_field.units = input_field.units
         output_field.long_name = input_field.long_name
         output_field[:] = stitched_array
