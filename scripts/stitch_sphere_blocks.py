@@ -46,7 +46,14 @@ time.long_name = 'model time'
 input_field = input_file.variables['time']
 time[:] = input_field[:]
 
-spatial_variables = ['z', 'lat', 'lon']
+# Write z variable to output file (this is the easiest case because the entire z vector is in a single block)
+z = output_file.createVariable('z', np.double, ('z',))
+input_field = input_file.variables['z']
+z.units = input_field.units
+z.long_name = input_field.long_name
+z[:] = input_field[0, 0, 0, :]
+
+spatial_variables = ['lat', 'lon']
 
 for ikey in spatial_variables:
 
@@ -74,10 +81,16 @@ for ikey in spatial_variables:
 
         stitched_array[0, iz, :, :] = np.transpose(stitched_array[0, iz, :, :])
 
-    output_field = output_file.createVariable(formatted_key, np.float32, ('time', 'z', 'lat', 'lon'))
-    output_field.units = input_field.units
-    output_field.long_name = input_field.long_name
-    output_field[:] = stitched_array
+    if ikey == 'lat':
+        output_field = output_file.createVariable(formatted_key, np.float32, ('lat'))
+        output_field.units = input_field.units
+        output_field.long_name = input_field.long_name
+        output_field[:] = stitched_array[0, 0, :, 0]
+    elif ikey == 'lon':
+        output_field = output_file.createVariable(formatted_key, np.float32, ('lon'))
+        output_field.units = input_field.units
+        output_field.long_name = input_field.long_name
+        output_field[:] = stitched_array[0, 0, 0, :]
 
 
 for ikey in input_file.variables:
