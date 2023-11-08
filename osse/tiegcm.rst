@@ -34,3 +34,9 @@ corresponding DART quantities are as follows:
 | ``ZG``         | ``QTY_GEOMETRIC_HEIGHT``               |
 +----------------+----------------------------------------+
 
+.. note::
+
+   Next step: run TIEGCM quickbuild to see if model_mod_check produces the
+   same results as Aether.
+
+
