@@ -49,3 +49,5 @@ corresponding DART quantities are as follows:
       message:  domain            2 , variable #           1  "ZG" from file "tiegcm_s.nc": NetCDF: Variable not found
       message: ...
 
+Got the proper restart files from Helen and ``model_mod_check`` runs properly.
+
