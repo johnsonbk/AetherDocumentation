@@ -71,10 +71,11 @@ location_mod
 model_mod_check
 ===============
 
-.. error::
+All of the checks pass, except the rows of latitudes closest to the poles are
+missing values. This may be the desired behavior, because it is unclear whether
+those values can be properly interpolated.
 
-   ``model_mod_check`` errors out with a dimension error using the
-   python-generated netCDF files.
+|missing_rows|
 
-Next phase is to implement ``get_state_meta_data`` and ``get_close_state``
-using GITM as a template.
+.. |missing_rows| image:: /_static/top_bottom_rows.png
+
