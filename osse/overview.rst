@@ -338,3 +338,11 @@ has no overlap of the grid files.
    :width: 900
    :alt: Scatter plot of the truncated Aether latitude/longitude sphere
 
+Editing the Aether source code to transpose the arrays
+------------------------------------------------------
+
+The `output_netcdf.cpp <https://github.com/AetherModel/Aether/blob/develop/src/output_netcdf.cpp>`_
+source code controls how netCDF files are output.
+
+I can't get it working with ``netcdf-cxx4`` but Aaron mentioned the CLANG version
+of the library when he visited.
