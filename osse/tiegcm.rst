@@ -34,3 +34,20 @@ corresponding DART quantities are as follows:
 | ``ZG``         | ``QTY_GEOMETRIC_HEIGHT``               |
 +----------------+----------------------------------------+
 
+.. note::
+
+   Next step: run TIEGCM quickbuild to see if model_mod_check produces the
+   same results as Aether.
+
+``model_mod_check`` throws an error because ``ZG`` is not in the file.
+
+.. error::
+
+   ERROR FROM:
+      source : netcdf_utilities_mod.f90
+      routine: load_variable_ids, nf90_inq_var_id
+      message:  domain            2 , variable #           1  "ZG" from file "tiegcm_s.nc": NetCDF: Variable not found
+      message: ...
+
+Got the proper restart files from Helen and ``model_mod_check`` runs properly.
+
