@@ -72,18 +72,7 @@ grid_file_0000.close()
 grid_file_0001.close()
 grid_file_0002.close()
 
-# TTTTT EEEEE M   M PPPP  L       A   TTTTT EEEEEE
-#   T   E     MM MM P   P L      A A    T   E
-#   T   EEEE  M M M PPPP  L     AAAAA   T   EEEEE
-#   T   E     M   M P     L     A   A   T   E
-#   T   EEEEE M   M P     LLLLL A   A   T   EEEEEE
-
-# The template file gives us the list of variables
-template_input_filename = filepath + file_prefix + members[0] + '_g' + blocks[0] + '.nc'
-print('Reading block file', template_input_filename)
-template_input_file = netCDF4.Dataset(template_input_filename)
-
-for member in members[:1]:
+for member in members:
     print('member', member)
 
     # OOOOO U   U TTTTT PPPP  U   U TTTTT
@@ -126,23 +115,35 @@ for member in members[:1]:
     output_field.long_name = 'Longitude'
     output_field[:] = lons[:]
 
-    # for ikey in template_input_file.variables:
-    for ikey in ['time']:
-        if ikey == 'time':
+    # TTTTT EEEEE M   M PPPP  L       A   TTTTT EEEEEE
+    #   T   E     MM MM P   P L      A A    T   E
+    #   T   EEEE  M M M PPPP  L     AAAAA   T   EEEEE
+    #   T   E     M   M P     L     A   A   T   E
+    #   T   EEEEE M   M P     LLLLL A   A   T   EEEEEE
+
+    # The template file gives us the list of variables
+    template_input_filename = filepath + file_prefix + member + '_g' + blocks[0] + '.nc'
+    print('Reading block file', template_input_filename)
+    template_input_file = netCDF4.Dataset(template_input_filename, 'r')
+
+    nvars = len(template_input_file.variables)
+    stitched_array = np.empty((nvars, ntimes, nzs, nlons, nlats))
+
+    for ikey, this_key in enumerate(template_input_file.variables):
+    # for this_key in ['Temperature']:
+        if this_key == 'time':
             pass
         else:
-            formatted_key = ikey.lower().strip('\\').replace(' ', '_').replace('+','p').replace('-','n')
-        
-            stitched_array = np.empty((ntimes, nzs, nlons, nlats))
+            formatted_key = this_key.lower().strip('\\').replace(' ', '_').replace('+','p').replace('-','n')
         
             for iblock, block in enumerate(blocks):
             
                 input_filename = filepath + file_prefix + member + '_g' + block + '.nc'
                 # print('Reading block file', input_filename)
-                input_file = netCDF4.Dataset(input_filename)
-                input_field = input_file.variables[ikey]
+                input_file = netCDF4.Dataset(input_filename, 'r')
+                input_field = input_file.variables[this_key]
 
-                # print('ikey', ikey, 'input_field.shape', input_field.shape)
+                # print('this_key', this_key, 'input_field.shape', input_field.shape)
 
                 # Loop through the z levels so that the array can be reordered from lon, lat, z to z, lat, lon
                 for iz in range (0, nzs):
@@ -152,27 +153,27 @@ for member in members[:1]:
                     # print('input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, :].shape()', input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, :].shape)
 
                     if iblock == 0:
-                        stitched_array[0, iz, 0:nlons_in_block-2*ntruncate, 0:nlats_in_block-2*ntruncate] = input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, iz]
+                        stitched_array[ikey, 0, iz, 0:nlons_in_block-2*ntruncate, 0:nlats_in_block-2*ntruncate] = input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, iz]
                     elif iblock == 1:
-                        stitched_array[0, iz, nlons_in_block-2*ntruncate:, 0:nlats_in_block-2*ntruncate] = input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, iz]
+                        stitched_array[ikey, 0, iz, nlons_in_block-2*ntruncate:, 0:nlats_in_block-2*ntruncate] = input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, iz]
                     elif iblock == 2:
-                        stitched_array[0, iz, 0:nlons_in_block-2*ntruncate, nlats_in_block-2*ntruncate:] = input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, iz]
+                        stitched_array[ikey, 0, iz, 0:nlons_in_block-2*ntruncate, nlats_in_block-2*ntruncate:] = input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, iz]
                     elif iblock == 3:
-                        stitched_array[0, iz, nlons_in_block-2*ntruncate:, nlats_in_block-2*ntruncate:] = input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, iz]
+                        stitched_array[ikey, 0, iz, nlons_in_block-2*ntruncate:, nlats_in_block-2*ntruncate:] = input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, iz]
 
-                    stitched_array[0, iz, :, :] = np.transpose(stitched_array[0, iz, :, :])
+                    # stitched_array[ikey, 0, iz, :, :] = np.transpose(stitched_array[ikey, 0, iz, :, :])
                 
                 input_file.close()
                 
             output_field = output_file.createVariable(formatted_key, np.double, ('time', 'z', 'lat', 'lon'))
             # output_field.units = input_field.units
             # output_field.long_name = input_field.long_name
-            output_field[:] = stitched_array
+            output_field[:] = stitched_array[ikey, :, :, :, :]
 
             if formatted_key == 'temperature':
 
-                plt.title('Temperature at highest altitude')
-                plt.pcolor(np.transpose(stitched_array[0, -1, :, :]), vmin=stitched_array[0, -1, :, :].min(), vmax=stitched_array[0, -1, :, :].max())
+                plt.title('Temperature at lowest altitude')
+                plt.pcolor(np.transpose(stitched_array[ikey, 0, 0, :, :]), vmin=stitched_array[ikey, 0, 0, :, :].min(), vmax=stitched_array[ikey, 0, 0, :, :].max())
                 plt.colorbar()
                 plt.savefig('stitched_array_ensemble_' + member + '.png')
                 plt.clf()
@@ -184,5 +185,4 @@ for member in members[:1]:
     
     print('Closing stitched output file', output_filename)
     output_file.close()
-
-template_input_file.close()
+    template_input_file.close()
