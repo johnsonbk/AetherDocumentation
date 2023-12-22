@@ -130,7 +130,6 @@ for member in members:
     stitched_array = np.empty((nvars, ntimes, nzs, nlons, nlats))
 
     for ikey, this_key in enumerate(template_input_file.variables):
-    # for this_key in ['Temperature']:
         if this_key == 'time':
             pass
         else:
@@ -139,29 +138,21 @@ for member in members:
             for iblock, block in enumerate(blocks):
             
                 input_filename = filepath + file_prefix + member + '_g' + block + '.nc'
-                # print('Reading block file', input_filename)
                 input_file = netCDF4.Dataset(input_filename, 'r')
                 input_field = input_file.variables[this_key]
 
-                # print('this_key', this_key, 'input_field.shape', input_field.shape)
-
                 # Loop through the z levels so that the array can be reordered from lon, lat, z to z, lat, lon
+
                 for iz in range (0, nzs):
 
-                    # print('stitched_array.shape', stitched_array.shape)
-                    # print('stitched_array[0, 0:nlons_in_block-ntruncate, 0:nlats_in_block-ntruncate, :].shape()', stitched_array[0, 0:nlons_in_block-2*ntruncate, 0:nlats_in_block-2*ntruncate, :].shape)
-                    # print('input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, :].shape()', input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, :].shape)
-
                     if iblock == 0:
-                        stitched_array[ikey, 0, iz, 0:nlons_in_block-2*ntruncate, 0:nlats_in_block-2*ntruncate] = input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, iz]
-                    elif iblock == 1:
-                        stitched_array[ikey, 0, iz, nlons_in_block-2*ntruncate:, 0:nlats_in_block-2*ntruncate] = input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, iz]
+                        stitched_array[ikey, 0, iz, 0:nlons_in_block-2*ntruncate, 0:nlats_in_block-2*ntruncate] = np.transpose(input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, iz])
                     elif iblock == 2:
-                        stitched_array[ikey, 0, iz, 0:nlons_in_block-2*ntruncate, nlats_in_block-2*ntruncate:] = input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, iz]
+                        stitched_array[ikey, 0, iz, nlons_in_block-2*ntruncate:, 0:nlats_in_block-2*ntruncate] = np.transpose(input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, iz])
+                    elif iblock == 1:
+                        stitched_array[ikey, 0, iz, 0:nlons_in_block-2*ntruncate, nlats_in_block-2*ntruncate:] = np.transpose(input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, iz])
                     elif iblock == 3:
-                        stitched_array[ikey, 0, iz, nlons_in_block-2*ntruncate:, nlats_in_block-2*ntruncate:] = input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, iz]
-
-                    # stitched_array[ikey, 0, iz, :, :] = np.transpose(stitched_array[ikey, 0, iz, :, :])
+                        stitched_array[ikey, 0, iz, nlons_in_block-2*ntruncate:, nlats_in_block-2*ntruncate:] = np.transpose(input_field[ntruncate:-ntruncate, ntruncate:-ntruncate, iz])
                 
                 input_file.close()
                 
@@ -172,16 +163,11 @@ for member in members:
 
             if formatted_key == 'temperature':
 
-                plt.title('Temperature at lowest altitude')
-                plt.pcolor(np.transpose(stitched_array[ikey, 0, 0, :, :]), vmin=stitched_array[ikey, 0, 0, :, :].min(), vmax=stitched_array[ikey, 0, 0, :, :].max())
+                plt.title('Temperature at highest altitude')
+                plt.pcolor(np.transpose(stitched_array[ikey, 0, -1, :, :]), vmin=stitched_array[ikey, 0, -1, :, :].min(), vmax=stitched_array[ikey, 0, -1, :, :].max())
                 plt.colorbar()
                 plt.savefig('stitched_array_ensemble_' + member + '.png')
                 plt.clf()
-
-                # plt.clf()
-                # plt.pcolor(input_field[2, :, :, -1], vmin=input_field[2, :, :, -1].min(), vmax=input_field[2, :, :, -1].max())
-                # plt.colorbar()
-                # plt.savefig('pcolor_on_input_field_ensemble_' + member + '.png')
     
     print('Closing stitched output file', output_filename)
     output_file.close()
