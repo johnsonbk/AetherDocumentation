@@ -125,7 +125,11 @@ for ikey in input_file.variables:
         output_field = output_file.createVariable(formatted_key, np.float32, ('time', 'z', 'lat', 'lon'))
         output_field.units = input_field.units
         output_field.long_name = input_field.long_name
-        output_field[:] = stitched_array
+
+        if formatted_key == 'en':
+            output_field[:] = stitched_array/1e6 # Convert from electrons/m^3 to electrons/cm^3
+        else:
+            output_field[:] = stitched_array
 
         if formatted_key == 'temperature':
 
