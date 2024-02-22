@@ -2,6 +2,15 @@
 CAM-SE
 ######
 
+Grid file
+=========
+
+An example grid file for CAM-SE cam be found on glade:
+
+.. code-block::
+
+   /glade/p/cesmdata/cseg/inputdata/atm/cam/inic/se/ape_topo_cam4_ne16np4_L32_c171020.nc
+
 Overview
 ========
 
