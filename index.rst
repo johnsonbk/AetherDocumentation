@@ -38,6 +38,7 @@ and slower, more accurate solvers (for science).
    :caption: Machines
 
    /machines/pleiades
+   /machines/derecho
 
 .. toctree::
    :maxdepth: 2
