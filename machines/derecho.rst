@@ -40,4 +40,29 @@ Downloading and installing aether
    mkdir build
    cd build
    cmake -DUSE_NETCDF=ON -DUSE_FORTRAN=ON ..
+   make -j32
+   cd ..
+   cp -R share/run ./run.test
+   cd run.test
+   vim run_aether.sh
+   
+Create a job script:
 
+.. code-block::
+
+   #!/usr/bin/bash
+   #PBS -N run_aether
+   #PBS -A REPLACE_WITH_PROJECT_CODE
+   #PBS -j oe
+   #PBS -k eod
+   #PBS -q main
+   #PBS -l walltime=00:10:00
+   #PBS -l select=1:ncpus=128:mpiprocs=128
+ 
+   $AETHERPATH/Aether/run.test/aether
+
+Submit the job script:
+
+.. code-block::
+
+   qsub run_aether.sh
