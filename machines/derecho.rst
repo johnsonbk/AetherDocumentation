@@ -27,6 +27,7 @@ Downloading and installing aether
 .. code-block::
 
    git clone https://github.com/AetherModel/Aether.git
+   cd Aether
    git fetch origin develop
    git switch develop
    vim CMakeLists.txt
